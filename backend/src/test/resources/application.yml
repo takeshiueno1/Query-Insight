@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:query_insight;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  flyway:
+    enabled: true
+app:
+  auth:
+    issuer: query-insight-test
+    access-token-ttl: PT15M
+    refresh-token-ttl: PT8H
+    secure-cookie: false
+    # テストごとに一時鍵を生成し、固定の秘密鍵をリポジトリへ保存しない。
+    allow-ephemeral-key: true
+    allowed-origins: http://localhost:8088
+  features:
+    ai-enabled: false

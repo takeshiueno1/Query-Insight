@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: query-insight
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/query_insight}
+    username: ${DB_USER:query_insight}
+    password: ${DB_PASSWORD:query_insight_local}
+  flyway:
+    enabled: true
+  jackson:
+    time-zone: UTC
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  forward-headers-strategy: framework
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+app:
+  auth:
+    issuer: ${JWT_ISSUER:query-insight}
+    access-token-ttl: PT15M
+    refresh-token-ttl: PT8H
+    secure-cookie: ${AUTH_SECURE_COOKIE:true}
+    allow-ephemeral-key: ${JWT_ALLOW_EPHEMERAL_KEY:false}
+    private-key: ${JWT_PRIVATE_KEY:}
+    public-key: ${JWT_PUBLIC_KEY:}
+    allowed-origins: ${AUTH_ALLOWED_ORIGINS:http://localhost:8088}
+  features:
+    ai-enabled: ${AI_ENABLED:false}
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    model: ${OPENAI_MODEL:gpt-5.6-sol}
+    request-timeout: ${OPENAI_REQUEST_TIMEOUT:PT30S}
