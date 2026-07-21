@@ -22,6 +22,7 @@
 | Backend | Java 21、Spring Boot 4.1、Spring Security、Spring JDBC、Flyway |
 | Database | PostgreSQL 18.4 |
 | Local runtime | Docker Compose |
+| Free preview | Render Web Service、Neon PostgreSQL |
 
 ## ローカル起動
 
@@ -58,6 +59,18 @@ docker compose up -d --build --force-recreate backend
 
 `AI分析` 画面から実行できます。送信対象は評価期間、能力軸名・コード、レベル、評価根拠に限定し、氏名・メールアドレス・社員番号は送信しません。APIキーは `.env` にのみ保存し、Gitへコミットしないでください。分析結果は人事判断の自動決定には使用せず、本人が確認する育成助言として扱います。
 
+## 無料公開版
+
+無料公開版はReactをSpring Bootの実行可能JARへ同梱し、内蔵Tomcatから画面とAPIを同一オリジンで配信します。Render無料Web ServiceとNeon無料PostgreSQLを対象とし、GitHub Actionsの検査成功後だけ自動デプロイします。
+
+ローカルで無料公開版と同じ統合イメージを確認する場合は、次を実行します。
+
+```powershell
+docker compose -f compose.yml -f compose.free.yml up --build db free-app
+```
+
+ブラウザで <http://localhost:8090> を開きます。Render・Neonの作成、秘密情報の登録、初期管理者設定は[無料公開版デプロイ手順](docs/07-free-deployment.md)を参照してください。無料公開版ではAI分析を無効化し、実在社員の個人情報・評価情報を登録しないでください。
+
 停止:
 
 ```powershell
@@ -86,6 +99,7 @@ npm run build
 - [ドキュメントガイド](docs/README.md)
 - [解析レポート](docs/05-analysis-report.md)
 - [要件・画面・実装トレーサビリティ](docs/06-traceability.md)
+- [無料公開版デプロイ手順](docs/07-free-deployment.md)
 - [未決事項](docs/99-open-questions.md)
 
 開発時は [AGENTS.md](AGENTS.md) のルールを優先してください。

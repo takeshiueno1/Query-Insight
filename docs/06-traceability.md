@@ -58,3 +58,5 @@
 ## 完了判定
 
 今回の成果物は「初期実装・設計検証用MVP」であり、詳細設計書の全76 APIを完了した本番リリース版ではない。`画面骨格`・`未実装` の行は、業務未決事項の確定後にAPI、認可、監査、単体・結合・E2Eテストを追加する必要がある。
+
+無料公開版は `Dockerfile.free` でReactとSpring Bootを統合し、`.github/workflows/ci.yml` でBackend、Frontend、統合イメージを検証する。Render・Neon上の実デプロイと外部疎通はアカウント・秘密情報の設定後に確認する。

@@ -1,0 +1,9 @@
+.git
+.github
+.env
+backend/target
+frontend/dist
+frontend/node_modules
+tmp
+output
+docs/source/original

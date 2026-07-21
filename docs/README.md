@@ -13,6 +13,7 @@
 | [04-non-functional-requirements.md](04-non-functional-requirements.md) | 性能、セキュリティ、運用要件 | 解析済み（一部数値未決） |
 | [05-analysis-report.md](05-analysis-report.md) | 資料横断分析、矛盾、実装判断 | 作成済み |
 | [06-traceability.md](06-traceability.md) | 要件・画面・API・実装状況 | 作成済み |
+| [07-free-deployment.md](07-free-deployment.md) | Render・Neon無料公開版の構成、設定、検証 | 作成済み |
 | [99-open-questions.md](99-open-questions.md) | 意思決定が必要な論点 | 更新中 |
 
 ## 一次資料

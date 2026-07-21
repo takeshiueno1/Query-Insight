@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -47,11 +48,17 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/login", "/api/v1/auth/refresh",
                                 "/api/v1/auth/password-reset-requests", "/actuator/health/**")
                         .permitAll()
-                        .anyRequest().authenticated())
+                        .requestMatchers("/api/**").authenticated()
+                        .requestMatchers("/actuator/**").denyAll()
+                        .requestMatchers(HttpMethod.GET, "/**").permitAll()
+                        .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(converter)))
                 .addFilterBefore(originValidationFilter, UsernamePasswordAuthenticationFilter.class)
                 .headers(headers -> headers
-                        .contentSecurityPolicy(csp -> csp.policyDirectives("default-src 'none'; frame-ancestors 'none'"))
+                        .contentSecurityPolicy(csp -> csp.policyDirectives(
+                                "default-src 'self'; connect-src 'self'; img-src 'self' data:; "
+                                        + "style-src 'self'; script-src 'self'; object-src 'none'; "
+                                        + "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"))
                         .frameOptions(frame -> frame.deny()));
         return http.build();
     }

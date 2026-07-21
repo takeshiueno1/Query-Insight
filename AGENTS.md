@@ -10,14 +10,15 @@
 ## 2. 現在確認できている状態
 
 - Gitリポジトリは初期化済み。
-- 現在のブランチは `master`。
-- コミット履歴は存在しない。
-- Gitリモートは設定されていない。
+- 現在の作業ブランチは `agent/initial-query-insight`。
+- 初期成果物のコミット履歴が存在する。
+- Gitリモート `origin` は `takeshiueno1/Query-Insight` に設定済み。
 - `docs/source/original/` にPDF 4件、Excel 4件の原本を格納し、解析済み。
 - Reactフロントエンド、Spring Bootバックエンド、PostgreSQL/Flywayスキーマ、テストが存在する。
 - 認証、ダッシュボード、社員検索・登録・詳細、自己評価、通知、監査ログはAPI接続済み。
 - スキル・経歴・上長評価・承認・管理機能は画面骨格またはDB基盤まで。
-- Docker Compose、`.gitignore`、`.env.example` を追加済み。CI設定は未作成。
+- Docker Compose、`.gitignore`、`.env.example`、GitHub Actions CIを追加済み。
+- Render Web ServiceとNeon PostgreSQLを対象にした無料公開版の構成を実装済み。外部リソース作成と実デプロイは未実施。
 
 ## 3. プロジェクト概要
 
@@ -25,7 +26,7 @@
 - 目的: 社員のスキル・経歴・評価を一元管理し、人材育成と配置・評価判断を支援する。
 - 対象ユーザー: 社員、上長・評価者、人事・管理者、システム運用者。
 - 提供形態: 社内向けWebアプリケーションとREST API。
-- 対象環境: Docker Composeによるローカル環境を実装済み。検証・本番は要確認。
+- 対象環境: Docker Composeによるローカル環境を実装済み。無料公開版はRender・Neon向け設定まで実装済み。正式環境は要確認。
 - 外部サービス: OpenAI APIは任意で、既定無効。SSO、メール、人事基幹連携は未決。
 
 ## 4. 技術構成とバージョン
@@ -52,11 +53,15 @@
 ```text
 Query Insight/
 ├── .git/
+├── .github/workflows/       # GitHub Actions CI
 ├── backend/                 # Spring Boot API、Flyway、テスト
 ├── frontend/                # React/Vite UI、テスト、nginx設定
 ├── AGENTS.md
 ├── README.md
 ├── compose.yml
+├── compose.free.yml
+├── Dockerfile.free
+├── render.yaml
 ├── .env.example
 ├── docs/
 │   ├── README.md
@@ -93,9 +98,13 @@ npm ci
 npm run lint
 npm test
 npm run build
+
+# 無料公開版と同じ統合イメージをローカル確認
+cd ..
+docker compose -f compose.yml -f compose.free.yml up --build db free-app
 ```
 
-Flywayはバックエンド起動時に自動適用される。ローカルURLは `http://localhost:8088`。本番デプロイ、CI、フォーマット専用コマンド、依存脆弱性ゲートは未設定。
+Flywayはバックエンド起動時に自動適用される。通常のローカルURLは `http://localhost:8088`、統合イメージは `http://localhost:8090`。CIは `.github/workflows/ci.yml` を使用する。正式デプロイ、フォーマット専用コマンド、依存脆弱性ゲートは未設定。
 
 ## 7. 作業開始時の確認
 
@@ -218,7 +227,7 @@ Flywayはバックエンド起動時に自動適用される。ローカルURL�
 - 不要な生成物、デバッグコード、一時ファイルが残っていない。
 - Git差分が依頼範囲に限定され、秘密情報を含んでいない。
 
-プロジェクト初期状態の現在はビルド・テスト対象がないため、アプリケーション実装を追加する作業では、技術構成、正確なコマンド、ディレクトリ構成、環境変数、CI方針を本書へ追記することも完了条件に含める。
+アプリケーション実装を追加する作業では、技術構成、正確なコマンド、ディレクトリ構成、環境変数、CI方針を本書へ反映することも完了条件に含める。
 
 ## 15. 作業完了時の報告順序
 

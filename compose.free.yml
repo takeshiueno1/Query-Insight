@@ -1,0 +1,25 @@
+services:
+  free-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.free
+    environment:
+      PORT: 8080
+      SPRING_PROFILES_ACTIVE: local
+      DB_URL: jdbc:postgresql://db:5432/${DB_NAME:-query_insight}
+      DB_USER: ${DB_USER:-query_insight}
+      DB_PASSWORD: ${DB_PASSWORD:-query_insight_local}
+      AUTH_SECURE_COOKIE: "false"
+      AUTH_ALLOWED_ORIGINS: http://localhost:8090
+      JWT_ALLOW_EPHEMERAL_KEY: "true"
+      AI_ENABLED: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8090:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12

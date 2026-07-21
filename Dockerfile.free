@@ -1,0 +1,23 @@
+FROM node:24.15.0-alpine AS frontend-build
+WORKDIR /workspace/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+FROM eclipse-temurin:21-jdk-alpine AS backend-build
+WORKDIR /workspace
+COPY backend/.mvn .mvn
+COPY backend/mvnw backend/pom.xml ./
+RUN chmod +x mvnw && ./mvnw -q -DskipTests dependency:go-offline
+COPY backend/src src
+COPY --from=frontend-build /workspace/frontend/dist src/main/resources/static
+RUN test -f src/main/resources/static/index.html && ./mvnw -q -DskipTests package
+
+FROM eclipse-temurin:21-jre-alpine
+RUN addgroup -S app && adduser -S -G app app
+WORKDIR /app
+COPY --from=backend-build /workspace/target/*.jar app.jar
+USER app
+EXPOSE 10000
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-XX:+ExitOnOutOfMemoryError", "-jar", "/app/app.jar"]

@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: query-insight-free
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile.free
+    dockerContext: .
+    healthCheckPath: /actuator/health/readiness
+    autoDeployTrigger: checksPass
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: free
+      - key: DB_URL
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: AUTH_SECURE_COOKIE
+        value: "true"
+      - key: AUTH_ALLOWED_ORIGINS
+        sync: false
+      - key: JWT_ALLOW_EPHEMERAL_KEY
+        value: "false"
+      - key: JWT_PRIVATE_KEY
+        sync: false
+      - key: JWT_PUBLIC_KEY
+        sync: false
+      - key: BOOTSTRAP_ADMIN_ENABLED
+        sync: false
+      - key: BOOTSTRAP_ADMIN_LOGIN_ID
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: BOOTSTRAP_ADMIN_EMPLOYEE_NO
+        sync: false
+      - key: BOOTSTRAP_ADMIN_LAST_NAME
+        sync: false
+      - key: BOOTSTRAP_ADMIN_FIRST_NAME
+        sync: false
+      - key: AI_ENABLED
+        value: "false"
