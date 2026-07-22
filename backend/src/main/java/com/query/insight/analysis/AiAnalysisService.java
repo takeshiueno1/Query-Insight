@@ -20,21 +20,21 @@ import org.springframework.stereotype.Service;
 @Service
 public class AiAnalysisService {
     private final JdbcClient jdbc;
-    private final OpenAiAnalysisClient client;
+    private final AiAnalysisClient client;
     private final AuditService audit;
     private final ObjectMapper objectMapper;
     private final boolean enabled;
-    private final String apiKey;
+    private final String configuredProvider;
 
-    public AiAnalysisService(JdbcClient jdbc, OpenAiAnalysisClient client, AuditService audit,
+    public AiAnalysisService(JdbcClient jdbc, AiAnalysisClient client, AuditService audit,
             ObjectMapper objectMapper, @Value("${app.features.ai-enabled}") boolean enabled,
-            @Value("${app.openai.api-key:}") String apiKey) {
+            @Value("${app.ai.provider:ollama}") String configuredProvider) {
         this.jdbc = jdbc;
         this.client = client;
         this.audit = audit;
         this.objectMapper = objectMapper;
         this.enabled = enabled;
-        this.apiKey = apiKey;
+        this.configuredProvider = configuredProvider;
     }
 
     public AnalysisResponse create(String employeePublicId, String accountPublicId, String traceId) {
@@ -42,12 +42,12 @@ public class AiAnalysisService {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AI_FEATURE_DISABLED",
                     "AI分析は設定で無効になっています");
         }
-        if (apiKey.isBlank()) {
+        if (!configuredProvider.equalsIgnoreCase(client.provider())) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AI_PROVIDER_NOT_CONFIGURED",
-                    "OpenAI APIキーが設定されていません");
+                    "利用可能なAIプロバイダーはollamaです");
         }
         Context context = context(employeePublicId);
-        List<OpenAiAnalysisClient.AxisInput> axes = jdbc.sql("""
+        List<AiAnalysisClient.AxisInput> axes = jdbc.sql("""
                 SELECT c.axis_code,c.display_name,s.level,s.evidence
                 FROM evaluation_criteria c
                 JOIN evaluation_periods p ON p.criteria_version_id=c.criteria_version_id
@@ -55,7 +55,7 @@ public class AiAnalysisService {
                 JOIN self_evaluation_details s ON s.target_id=t.id AND s.axis_code=c.axis_code
                 WHERE t.id=:targetId ORDER BY c.sort_order
                 """).param("targetId", context.targetId())
-                .query((rs, row) -> new OpenAiAnalysisClient.AxisInput(rs.getString("axis_code"),
+                .query((rs, row) -> new AiAnalysisClient.AxisInput(rs.getString("axis_code"),
                         rs.getString("display_name"), rs.getInt("level"), rs.getString("evidence")))
                 .list();
         if (axes.size() != 6) {
@@ -63,11 +63,10 @@ public class AiAnalysisService {
                     "AI分析には6軸すべての評価と根拠が必要です");
         }
 
-        OpenAiAnalysisClient.TalentProfileInput talentProfile = talentProfile(context.employeeId());
+        AiAnalysisClient.TalentProfileInput talentProfile = talentProfile(context.employeeId());
 
         String requestFingerprint = fingerprint(context.targetPublicId(), axes, talentProfile);
-        OpenAiAnalysisClient.AnalysisPayload payload = client.analyze(context.periodName(), axes, talentProfile,
-                Hashing.sha256(employeePublicId));
+        AiAnalysisClient.AnalysisPayload payload = client.analyze(context.periodName(), axes, talentProfile);
         Instant generatedAt = Instant.now();
         String publicId = PublicIdGenerator.next();
         long accountId = jdbc.sql("SELECT id FROM accounts WHERE public_id=:publicId")
@@ -75,10 +74,11 @@ public class AiAnalysisService {
         jdbc.sql("""
                 INSERT INTO ai_analysis_results(public_id,employee_id,evaluation_target_id,provider,model,
                   request_fingerprint,response_json,generated_at,generated_by_account_id)
-                VALUES (:publicId,:employeeId,:targetId,'OPENAI',:model,:fingerprint,
+                VALUES (:publicId,:employeeId,:targetId,:provider,:model,:fingerprint,
                   CAST(:response AS JSONB),:generatedAt,:accountId)
                 """).param("publicId", publicId).param("employeeId", context.employeeId())
-                .param("targetId", context.targetId()).param("model", client.model())
+                .param("targetId", context.targetId()).param("provider", client.provider())
+                .param("model", client.model())
                 .param("fingerprint", requestFingerprint).param("response", toJson(payload))
                 .param("generatedAt", Timestamp.from(generatedAt)).param("accountId", accountId).update();
         audit.record(accountId, "AI_ANALYSIS_CREATED", "EVALUATION_TARGET", context.targetPublicId(),
@@ -102,49 +102,49 @@ public class AiAnalysisService {
                         "AI分析対象の評価がありません"));
     }
 
-    private OpenAiAnalysisClient.TalentProfileInput talentProfile(long employeeId) {
+    private AiAnalysisClient.TalentProfileInput talentProfile(long employeeId) {
         CurrentContext current = jdbc.sql("SELECT position_name,hire_date FROM employees WHERE id=:employeeId")
                 .param("employeeId", employeeId)
                 .query((rs, row) -> new CurrentContext(rs.getString("position_name"),
                         rs.getObject("hire_date", LocalDate.class))).single();
-        List<OpenAiAnalysisClient.SkillInput> skills = jdbc.sql("""
+        List<AiAnalysisClient.SkillInput> skills = jdbc.sql("""
                 SELECT sm.name,es.proficiency_level,es.years_experience,es.evidence
                 FROM employee_skills es JOIN skill_masters sm ON sm.id=es.skill_id
                 WHERE es.employee_id=:employeeId ORDER BY es.proficiency_level DESC,sm.name LIMIT 12
                 """).param("employeeId", employeeId)
-                .query((rs, row) -> new OpenAiAnalysisClient.SkillInput(rs.getString("name"),
+                .query((rs, row) -> new AiAnalysisClient.SkillInput(rs.getString("name"),
                         rs.getInt("proficiency_level"), rs.getDouble("years_experience"), rs.getString("evidence")))
                 .list();
-        List<OpenAiAnalysisClient.KnowledgeInput> knowledge = jdbc.sql("""
+        List<AiAnalysisClient.KnowledgeInput> knowledge = jdbc.sql("""
                 SELECT km.name,ek.proficiency_level,ek.evidence
                 FROM employee_knowledge ek JOIN knowledge_masters km ON km.id=ek.knowledge_id
                 WHERE ek.employee_id=:employeeId ORDER BY ek.proficiency_level DESC,km.name LIMIT 10
                 """).param("employeeId", employeeId)
-                .query((rs, row) -> new OpenAiAnalysisClient.KnowledgeInput(rs.getString("name"),
+                .query((rs, row) -> new AiAnalysisClient.KnowledgeInput(rs.getString("name"),
                         rs.getInt("proficiency_level"), rs.getString("evidence"))).list();
-        List<OpenAiAnalysisClient.ExperienceInput> experiences = jdbc.sql("""
+        List<AiAnalysisClient.ExperienceInput> experiences = jdbc.sql("""
                 SELECT role_name,industry,summary,achievements,technologies FROM career_histories
                 WHERE employee_id=:employeeId ORDER BY start_date DESC LIMIT 5
                 """).param("employeeId", employeeId)
-                .query((rs, row) -> new OpenAiAnalysisClient.ExperienceInput(rs.getString("role_name"),
+                .query((rs, row) -> new AiAnalysisClient.ExperienceInput(rs.getString("role_name"),
                         rs.getString("industry"), rs.getString("summary"), rs.getString("achievements"),
                         rs.getString("technologies"))).list();
-        List<OpenAiAnalysisClient.CertificationInput> certifications = jdbc.sql("""
+        List<AiAnalysisClient.CertificationInput> certifications = jdbc.sql("""
                 SELECT cm.name,cm.issuer FROM employee_certifications ec
                 JOIN certification_masters cm ON cm.id=ec.certification_id
                 WHERE ec.employee_id=:employeeId AND ec.verification_status='VERIFIED'
                 ORDER BY ec.acquired_on DESC LIMIT 10
                 """).param("employeeId", employeeId)
-                .query((rs, row) -> new OpenAiAnalysisClient.CertificationInput(rs.getString("name"),
+                .query((rs, row) -> new AiAnalysisClient.CertificationInput(rs.getString("name"),
                         rs.getString("issuer"))).list();
         int tenureYears = current.hireDate() == null ? 0
                 : Math.max(0, Period.between(current.hireDate(), LocalDate.now(ZoneOffset.UTC)).getYears());
-        return new OpenAiAnalysisClient.TalentProfileInput(current.positionName(), tenureYears,
+        return new AiAnalysisClient.TalentProfileInput(current.positionName(), tenureYears,
                 skills, knowledge, experiences, certifications);
     }
 
-    private String fingerprint(String targetPublicId, List<OpenAiAnalysisClient.AxisInput> axes,
-            OpenAiAnalysisClient.TalentProfileInput talentProfile) {
+    private String fingerprint(String targetPublicId, List<AiAnalysisClient.AxisInput> axes,
+            AiAnalysisClient.TalentProfileInput talentProfile) {
         return Hashing.sha256(targetPublicId + ":" + toJson(axes) + ":" + toJson(talentProfile));
     }
 
@@ -163,7 +163,7 @@ public class AiAnalysisService {
     }
 
     public record AnalysisResponse(String publicId, String periodName, String summary,
-            List<OpenAiAnalysisClient.Insight> strengths, List<OpenAiAnalysisClient.Insight> growthAreas,
-            List<OpenAiAnalysisClient.RecommendedAction> recommendedActions, String model, Instant generatedAt) {
+            List<AiAnalysisClient.Insight> strengths, List<AiAnalysisClient.Insight> growthAreas,
+            List<AiAnalysisClient.RecommendedAction> recommendedActions, String model, Instant generatedAt) {
     }
 }

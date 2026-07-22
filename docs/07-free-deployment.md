@@ -92,7 +92,9 @@ openssl pkey -in jwt-private.pem -pubout -out jwt-public.pem
 
 ## 7. AI分析
 
-AI分析のコード、画面、API、OpenAI Responses APIクライアントは実装済みだが、無料公開版では `AI_ENABLED=false` に固定する。この状態ではOpenAI APIへデータを送信しない。契約、費用上限、送信範囲、保持条件を承認するまで有効化しない。
+ローカル版はOllamaと`qwen3:4b`を使用し、API利用料と外部AIサービスへのデータ送信を発生させない。Render無料Web ServiceはAIモデルを動かすためのメモリ・計算資源を前提にできないため、無料公開版では `AI_ENABLED=false` に固定する。
+
+本番でAI分析を有効にする場合は、Ollamaを社内または専用サーバーで常時稼働させ、アプリから閉域または認証済み経路で接続する。インターネットへOllama APIのポートを直接公開しない。必要なCPU・メモリまたはGPU、同時実行数、監視、バックアップ、障害時の縮退動作を設計してから有効化する。
 
 ## 8. ロールバック
 

@@ -20,6 +20,7 @@
 - スキル・経歴・資格の更新、上長評価・承認・管理機能は画面骨格またはDB基盤まで。
 - Docker Compose、`.gitignore`、`.env.example`、GitHub Actions CIを追加済み。
 - Render Web ServiceとNeon PostgreSQLを対象にした無料公開版の構成を実装済み。外部リソース作成と実デプロイは未実施。
+- AI分析はローカルOllamaとQwen3を使用し、API利用料と外部AIサービスへの社員情報送信を発生させない構成。Render無料公開版では無効。
 
 ## 3. プロジェクト概要
 
@@ -28,7 +29,7 @@
 - 対象ユーザー: 社員、上長・評価者、人事・管理者、システム運用者。
 - 提供形態: 社内向けWebアプリケーションとREST API。
 - 対象環境: Docker Composeによるローカル環境を実装済み。無料公開版はRender・Neon向け設定まで実装済み。正式環境は要確認。
-- 外部サービス: OpenAI APIは任意で、既定無効。SSO、メール、人事基幹連携は未決。
+- 外部サービス: AIはローカルOllamaを使用。SSO、メール、人事基幹連携は未決。
 
 ## 4. 技術構成とバージョン
 
@@ -88,7 +89,9 @@ Query Insight/
 ```powershell
 # ローカル一式
 Copy-Item .env.example .env
-docker compose up --build
+docker compose up -d db ollama
+docker compose exec ollama ollama pull qwen3:4b
+docker compose up --build backend frontend
 
 # Backendテスト・ビルド
 cd backend

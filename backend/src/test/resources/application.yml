@@ -16,3 +16,5 @@ app:
     allowed-origins: http://localhost:8088
   features:
     ai-enabled: false
+  ai:
+    provider: ollama

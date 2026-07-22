@@ -10,7 +10,7 @@
 - 通知一覧、監査ログ一覧
 - SCR-001〜SCR-023のルーティングと、設計書に沿ったダークネイビー／イエローのレスポンシブUI
 - PostgreSQL向けFlywayスキーマ、50名分の組織・6能力軸・スキル・知識・業務経歴・資格を含むローカル専用サンプルデータ
-- OpenAI Responses APIによる能力分析（APIキー設定時のみ有効）
+- OllamaとQwen3によるローカル能力分析（API利用料・外部送信なし）
 
 画面骨格のみの機能と残作業は [トレーサビリティ](docs/06-traceability.md) を参照してください。
 
@@ -26,11 +26,13 @@
 
 ## ローカル起動
 
-前提: Docker Desktop と Docker Compose。
+前提: Docker Desktop と Docker Compose。初回だけOllamaモデル約2.5GBをダウンロードします。
 
 ```powershell
 Copy-Item .env.example .env
-docker compose up --build
+docker compose up -d db ollama
+docker compose exec ollama ollama pull qwen3:4b
+docker compose up --build backend frontend
 ```
 
 ブラウザで <http://localhost:8088> を開きます。`local` プロファイル専用の確認用アカウントは次のとおりです。
@@ -43,21 +45,24 @@ docker compose up --build
 
 これらはローカル用の架空データです。50名全員に提出済みの6能力軸、スキル、専門知識、業務経歴、資格を登録しています。`QI0006`～`QI0050` は `qi0006@query.local` のように社員番号を小文字にしたログインIDと同じローカルパスワードで確認できます。詳細は[50名リアリティデータ](docs/08-realistic-sample-data.md)を参照してください。本番環境では `local` プロファイルを使用せず、RSA秘密鍵・公開鍵を `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` で設定してください。
 
-## AI分析の有効化
+## ローカルAI分析
 
-AI分析は外部送信を伴うため既定では無効です。ローカルの `.env` に次を設定し、コンテナを再作成してください。ChatGPTの契約とは別に、OpenAI APIで利用できるAPIキーと課金設定が必要です。
+AI分析は既定でOllamaを使用します。モデルと社員情報はDocker Desktop上のローカル環境から外部AIサービスへ送信されず、APIキーや従量課金もありません。
 
 ```dotenv
 AI_ENABLED=true
-OPENAI_API_KEY=your-api-key
-OPENAI_MODEL=gpt-5.6-sol
+AI_PROVIDER=ollama
+OLLAMA_MODEL=qwen3:4b
 ```
 
 ```powershell
-docker compose up -d --build --force-recreate backend
+docker compose exec ollama ollama pull qwen3:4b
+docker compose up -d --build --force-recreate backend frontend
 ```
 
-`AI分析` 画面から実行できます。送信対象は評価期間、能力軸、スキル、専門知識、直近の業務経験、確認済み資格に限定し、氏名・メールアドレス・社員番号は送信しません。APIキーは `.env` にのみ保存し、Gitへコミットしないでください。分析結果は人事判断の自動決定には使用せず、本人が確認する育成助言として扱います。
+`AI分析` 画面から実行できます。AI入力は評価期間、能力軸、スキル、専門知識、直近の業務経験、確認済み資格に限定し、氏名・メールアドレス・社員番号・部署名・公開IDを含めません。分析結果は人事判断の自動決定には使用せず、本人が確認する育成助言として扱います。CPU実行では初回分析に数分かかる場合があります。
+
+本番でもOllamaは利用できますが、アプリとは別にOllama対応サーバーを常時稼働させ、バックアップ、監視、アクセス制御、必要なCPU・メモリまたはGPUを用意する必要があります。Renderの小規模な無料Web ServiceへAIモデルを同居させる構成は対象外です。
 
 ## 無料公開版
 
@@ -69,7 +74,7 @@ docker compose up -d --build --force-recreate backend
 docker compose -f compose.yml -f compose.free.yml up --build db free-app
 ```
 
-ブラウザで <http://localhost:8090> を開きます。Render・Neonの作成、秘密情報の登録、初期管理者設定は[無料公開版デプロイ手順](docs/07-free-deployment.md)を参照してください。無料公開版ではAI分析を無効化し、実在社員の個人情報・評価情報を登録しないでください。
+ブラウザで <http://localhost:8090> を開きます。Render・Neonの作成、秘密情報の登録、初期管理者設定は[無料公開版デプロイ手順](docs/07-free-deployment.md)を参照してください。Render無料公開版ではOllamaを収容できないためAI分析を無効化し、実在社員の個人情報・評価情報を登録しないでください。
 
 停止:
 

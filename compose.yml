@@ -15,6 +15,19 @@ services:
       retries: 20
     restart: unless-stopped
 
+  ollama:
+    image: ollama/ollama:0.32.1
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - query-insight-ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   backend:
     build: ./backend
     environment:
@@ -24,12 +37,15 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-query_insight_local}
       AUTH_SECURE_COOKIE: "false"
       JWT_ALLOW_EPHEMERAL_KEY: "true"
-      AI_ENABLED: ${AI_ENABLED:-false}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-sol}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      AI_ENABLED: ${AI_ENABLED:-true}
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_REQUEST_TIMEOUT: ${OLLAMA_REQUEST_TIMEOUT:-PT5M}
     depends_on:
       db:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health/readiness"]
@@ -49,3 +65,4 @@ services:
 
 volumes:
   query-insight-postgres:
+  query-insight-ollama:

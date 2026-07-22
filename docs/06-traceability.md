@@ -15,7 +15,7 @@
 | SCR-009 | 自己評価 | `/evaluations/self` | 下書き・提出API接続済み |
 | SCR-010 | 上長評価 | `/evaluations/manager` | 画面骨格 |
 | SCR-011 | 評価管理 | `/evaluations/manage` | 画面骨格 |
-| SCR-012 | AI分析 | `/analysis` | OpenAI API接続済み（既定無効） |
+| SCR-012 | AI分析 | `/analysis` | ローカルOllama接続済み |
 | SCR-013 | 通知 | `/notifications` | 一覧API接続済み |
 | SCR-014 | マスタ管理 | `/masters` | 画面骨格 |
 | SCR-015 | 監査ログ | `/audit` | API接続済み |
@@ -38,7 +38,7 @@
 | 自己評価 | `GET /api/v1/evaluations/self/current`, `PUT draft`, `POST submit` | 実装済み |
 | 通知 | `GET /api/v1/notifications` | 実装済み |
 | 監査 | `GET /api/v1/audit-logs` | 実装済み |
-| AI | `POST /api/v1/ai-analyses` | 評価・スキル・知識・経歴・資格を匿名化してOpenAI Responses APIへ連携、構造化出力・監査・結果保存を実装（既定無効） |
+| AI | `POST /api/v1/ai-analyses` | 評価・スキル・知識・経歴・資格を匿名化してローカルOllamaへ連携、JSON Schema出力・監査・結果保存を実装 |
 | スキル・知識・資格・経歴 | `GET /api/v1/employees/:publicId/talent-profile` | 権限スコープ付き一覧を実装、更新・承認APIは未実装 |
 | 上長評価・承認 | 詳細設計書の評価・承認API | 未実装 |
 | 組織・アカウント・マスタ | 詳細設計書の管理API | 未実装 |
@@ -52,7 +52,7 @@
 | UIの代替表 | `RadarChart.test.tsx` | キーボード、狭幅、コントラスト |
 | DBマイグレーション | Spring context / Flyway test | PostgreSQL 18.4で新規起動 |
 | ローカル能力データ | `AuthServiceIntegrationTests` | 50名・300評価明細・250スキル・150知識・経歴・資格が表示されること |
-| AIリクエスト契約 | `OpenAiAnalysisClientTests` | APIキー設定環境で分析結果が表示・保存されること |
+| AIリクエスト契約 | `OllamaAnalysisClientTests` | `qwen3:4b`取得済み環境で分析結果が表示・保存されること |
 | ローカル再現性 | Docker Compose構文・起動確認 | `http://localhost:8088` の主要フロー |
 
 ## 完了判定

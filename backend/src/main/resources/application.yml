@@ -34,6 +34,8 @@ app:
     allowed-origins: ${AUTH_ALLOWED_ORIGINS:http://localhost:8088}
   features:
     ai-enabled: ${AI_ENABLED:false}
+  ai:
+    provider: ${AI_PROVIDER:ollama}
   bootstrap:
     admin:
       enabled: ${BOOTSTRAP_ADMIN_ENABLED:false}
@@ -42,8 +44,7 @@ app:
       employee-no: ${BOOTSTRAP_ADMIN_EMPLOYEE_NO:}
       last-name: ${BOOTSTRAP_ADMIN_LAST_NAME:}
       first-name: ${BOOTSTRAP_ADMIN_FIRST_NAME:}
-  openai:
-    api-key: ${OPENAI_API_KEY:}
-    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
-    model: ${OPENAI_MODEL:gpt-5.6-sol}
-    request-timeout: ${OPENAI_REQUEST_TIMEOUT:PT30S}
+  ollama:
+    base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+    model: ${OLLAMA_MODEL:qwen3:4b}
+    request-timeout: ${OLLAMA_REQUEST_TIMEOUT:PT5M}
