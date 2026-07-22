@@ -9,7 +9,7 @@
 - 自己評価の下書き保存・提出（楽観ロック）
 - 通知一覧、監査ログ一覧
 - SCR-001〜SCR-023のルーティングと、設計書に沿ったダークネイビー／イエローのレスポンシブUI
-- PostgreSQL向けFlyway初期スキーマ、5名分・6能力軸のローカル専用サンプルデータ
+- PostgreSQL向けFlywayスキーマ、50名分の組織・6能力軸・スキル・知識・業務経歴・資格を含むローカル専用サンプルデータ
 - OpenAI Responses APIによる能力分析（APIキー設定時のみ有効）
 
 画面骨格のみの機能と残作業は [トレーサビリティ](docs/06-traceability.md) を参照してください。
@@ -41,7 +41,7 @@ docker compose up --build
 | 上長 | `manager@query.local` | `QueryInsight#2026` |
 | 社員 | `employee@query.local` | `QueryInsight#2026` |
 
-これらはローカル用の架空データです。社員アカウントには提出済みの6能力軸が登録されており、ログイン直後のダッシュボードで確認できます。本番環境では `local` プロファイルを使用せず、RSA秘密鍵・公開鍵を `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` で設定してください。
+これらはローカル用の架空データです。50名全員に提出済みの6能力軸、スキル、専門知識、業務経歴、資格を登録しています。`QI0006`～`QI0050` は `qi0006@query.local` のように社員番号を小文字にしたログインIDと同じローカルパスワードで確認できます。詳細は[50名リアリティデータ](docs/08-realistic-sample-data.md)を参照してください。本番環境では `local` プロファイルを使用せず、RSA秘密鍵・公開鍵を `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` で設定してください。
 
 ## AI分析の有効化
 
@@ -57,7 +57,7 @@ OPENAI_MODEL=gpt-5.6-sol
 docker compose up -d --build --force-recreate backend
 ```
 
-`AI分析` 画面から実行できます。送信対象は評価期間、能力軸名・コード、レベル、評価根拠に限定し、氏名・メールアドレス・社員番号は送信しません。APIキーは `.env` にのみ保存し、Gitへコミットしないでください。分析結果は人事判断の自動決定には使用せず、本人が確認する育成助言として扱います。
+`AI分析` 画面から実行できます。送信対象は評価期間、能力軸、スキル、専門知識、直近の業務経験、確認済み資格に限定し、氏名・メールアドレス・社員番号は送信しません。APIキーは `.env` にのみ保存し、Gitへコミットしないでください。分析結果は人事判断の自動決定には使用せず、本人が確認する育成助言として扱います。
 
 ## 無料公開版
 
@@ -100,6 +100,7 @@ npm run build
 - [解析レポート](docs/05-analysis-report.md)
 - [要件・画面・実装トレーサビリティ](docs/06-traceability.md)
 - [無料公開版デプロイ手順](docs/07-free-deployment.md)
+- [50名リアリティデータ](docs/08-realistic-sample-data.md)
 - [未決事項](docs/99-open-questions.md)
 
 開発時は [AGENTS.md](AGENTS.md) のルールを優先してください。

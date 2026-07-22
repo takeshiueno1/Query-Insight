@@ -15,8 +15,9 @@
 - Gitリモート `origin` は `takeshiueno1/Query-Insight` に設定済み。
 - `docs/source/original/` にPDF 4件、Excel 4件の原本を格納し、解析済み。
 - Reactフロントエンド、Spring Bootバックエンド、PostgreSQL/Flywayスキーマ、テストが存在する。
-- 認証、ダッシュボード、社員検索・登録・詳細、自己評価、通知、監査ログはAPI接続済み。
-- スキル・経歴・上長評価・承認・管理機能は画面骨格またはDB基盤まで。
+- 認証、ダッシュボード、社員検索・登録・詳細、自己評価、タレントプロフィール一覧、通知、監査ログはAPI接続済み。
+- 50名分のローカル専用架空社員、評価、スキル、知識、業務経歴、資格データを実装済み。
+- スキル・経歴・資格の更新、上長評価・承認・管理機能は画面骨格またはDB基盤まで。
 - Docker Compose、`.gitignore`、`.env.example`、GitHub Actions CIを追加済み。
 - Render Web ServiceとNeon PostgreSQLを対象にした無料公開版の構成を実装済み。外部リソース作成と実デプロイは未実施。
 
@@ -71,6 +72,8 @@ Query Insight/
 │   ├── 04-non-functional-requirements.md
 │   ├── 05-analysis-report.md
 │   ├── 06-traceability.md
+│   ├── 07-free-deployment.md
+│   ├── 08-realistic-sample-data.md
 │   ├── 99-open-questions.md
 │   └── source/
 │       ├── project-context.md

@@ -7,9 +7,9 @@ export function AiAnalysisPage() {
   const problem = analysis.error instanceof ApiError ? analysis.error.problem : null
 
   return <>
-    <div className="page-heading"><div><span className="eyebrow">SCR-012</span><h1>AI能力分析</h1><p>提出済みの6軸評価と根拠から、育成のための示唆を作成します</p></div></div>
+    <div className="page-heading"><div><span className="eyebrow">SCR-012</span><h1>AI能力分析</h1><p>評価、スキル、専門知識、業務経験から、育成のための示唆を作成します</p></div></div>
     <section className="card analysis-consent">
-      <div><h2>外部送信する情報</h2><p>評価期間、能力軸、レベル、評価根拠だけをOpenAI APIへ送信します。氏名、社員番号、メールアドレス、部署名は送信しません。</p></div>
+      <div><h2>外部送信する情報</h2><p>評価期間・能力軸・根拠、スキル、専門知識、直近の業務経験、確認済み資格をOpenAI APIへ送信します。氏名、社員番号、メールアドレス、部署名、公開IDは送信しません。</p></div>
       <button className="primary-button" disabled={analysis.isPending} onClick={() => analysis.mutate()}>{analysis.isPending ? '分析中…' : 'AI分析を実行'}</button>
     </section>
     {problem && <div className="error-banner" role="alert">{problem.detail}（{problem.code}）</div>}

@@ -12,6 +12,7 @@ import { EvaluationPage } from './pages/EvaluationPage'
 import { FeaturePage } from './pages/FeaturePage'
 import { LoginPage } from './pages/LoginPage'
 import { NotificationsPage } from './pages/NotificationsPage'
+import { TalentProfilePage } from './pages/TalentProfilePage'
 
 function ProtectedLayout() {
   const { user, loading } = useAuth()
@@ -28,9 +29,9 @@ export default function App() {
       <Route path="employees/new" element={<EmployeeFormPage />} />
       <Route path="employees/:publicId/edit" element={<EmployeeFormPage />} />
       <Route path="employees/:publicId" element={<EmployeeDetailPage />} />
-      <Route path="careers/edit" element={<FeaturePage screenId="SCR-006" title="業務経歴編集" description="役割・期間・成果・技術を根拠として管理します" sections={['経歴一覧', '承認状態', '更新履歴']} />} />
-      <Route path="skills/edit" element={<FeaturePage screenId="SCR-007" title="スキル編集" description="レベル0と未評価を区別し、経験期間と根拠を登録します" sections={['スキル一覧', 'レベル基準', '承認申請']} />} />
-      <Route path="certifications/edit" element={<FeaturePage screenId="SCR-008" title="資格編集" description="取得日・有効期限・確認状態を管理します" sections={['保有資格', '期限切れ確認', '資格登録']} />} />
+      <Route path="careers/edit" element={<TalentProfilePage />} />
+      <Route path="skills/edit" element={<TalentProfilePage />} />
+      <Route path="certifications/edit" element={<TalentProfilePage />} />
       <Route path="evaluations/self" element={<EvaluationPage />} />
       <Route path="evaluations/manager" element={<FeaturePage screenId="SCR-010" title="上長評価" description="自己評価と根拠を確認し、独立した上長評価を登録します" sections={['評価対象', '6軸評価', '差し戻し・提出']} />} />
       <Route path="evaluations/manage" element={<FeaturePage screenId="SCR-011" title="評価管理" description="評価期間、対象者、確定・訂正を管理します" sections={['評価期間', '進捗管理', '確定・訂正']} />} />

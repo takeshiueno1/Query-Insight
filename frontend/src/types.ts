@@ -91,3 +91,40 @@ export type AiAnalysis = {
   model: string
   generatedAt: string
 }
+
+export type TalentProfile = {
+  skills: Array<{
+    code: string
+    name: string
+    category: string
+    level: number
+    yearsExperience: number
+    lastUsedOn: string
+    evidence: string
+  }>
+  knowledge: Array<{
+    code: string
+    name: string
+    category: string
+    level: number
+    evidence: string
+  }>
+  careers: Array<{
+    projectName: string
+    industry: string
+    roleName: string
+    startDate: string
+    endDate: string | null
+    summary: string
+    achievements: string
+    technologies: string
+  }>
+  certifications: Array<{
+    code: string
+    name: string
+    issuer: string
+    acquiredOn: string
+    expiresOn: string | null
+    verificationStatus: string
+  }>
+}

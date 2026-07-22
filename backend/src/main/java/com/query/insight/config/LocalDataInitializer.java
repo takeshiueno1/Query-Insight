@@ -8,6 +8,7 @@ import java.util.List;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.annotation.Order;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -15,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @Profile("local")
+@Order(10)
 public class LocalDataInitializer implements ApplicationRunner {
     private static final String LOCAL_PASSWORD = "QueryInsight#2026";
     private final JdbcClient jdbc;

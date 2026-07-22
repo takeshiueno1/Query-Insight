@@ -18,6 +18,13 @@ class OpenAiAnalysisClientTests {
     void requestMinimizesIdentityDataAndRequiresStructuredOutput() throws Exception {
         String body = client.requestBody("2026年度 下期評価",
                 List.of(new OpenAiAnalysisClient.AxisInput("TECHNICAL", "技術力", 4, "障害を再発防止した")),
+                new OpenAiAnalysisClient.TalentProfileInput(
+                        "シニアソフトウェアエンジニア", 6,
+                        List.of(new OpenAiAnalysisClient.SkillInput("Java", 4, 5.5, "API開発を主導")),
+                        List.of(new OpenAiAnalysisClient.KnowledgeInput("システム設計", 3, "設計レビューを担当")),
+                        List.of(new OpenAiAnalysisClient.ExperienceInput("開発リーダー", "B2B SaaS",
+                                "基盤刷新", "リードタイムを短縮", "Java、PostgreSQL")),
+                        List.of(new OpenAiAnalysisClient.CertificationInput("応用情報技術者", "情報処理推進機構"))),
                 "privacy-safe-id");
         JsonNode request = objectMapper.readTree(body);
 
@@ -26,7 +33,9 @@ class OpenAiAnalysisClientTests {
         assertThat(request.path("safety_identifier").asText()).isEqualTo("privacy-safe-id");
         assertThat(request.path("text").path("format").path("type").asText()).isEqualTo("json_schema");
         assertThat(request.path("text").path("format").path("strict").asBoolean()).isTrue();
-        assertThat(request.path("input").asText()).contains("TECHNICAL").doesNotContain("employeePublicId");
+        assertThat(request.path("input").asText()).contains("TECHNICAL", "Java", "システム設計", "開発リーダー",
+                        "シニアソフトウェアエンジニア")
+                .doesNotContain("employeePublicId", "email", "employeeNo");
     }
 
     @Test
