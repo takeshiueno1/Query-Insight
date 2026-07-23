@@ -11,6 +11,7 @@
 - SCR-001〜SCR-023のルーティングと、設計書に沿ったダークネイビー／イエローのレスポンシブUI
 - PostgreSQL向けFlywayスキーマ、50名分の組織・6能力軸・スキル・知識・業務経歴・資格を含むローカル専用サンプルデータ
 - OllamaとQwen3によるローカル能力分析（API利用料・外部送信なし）
+- 総当たり・AI過負荷のレート制限、Token再利用検知、CSP、Origin検証、依存関係監査
 
 画面骨格のみの機能と残作業は [トレーサビリティ](docs/06-traceability.md) を参照してください。
 
@@ -106,6 +107,7 @@ npm run build
 - [要件・画面・実装トレーサビリティ](docs/06-traceability.md)
 - [無料公開版デプロイ手順](docs/07-free-deployment.md)
 - [50名リアリティデータ](docs/08-realistic-sample-data.md)
+- [セキュリティ対策](docs/09-security-measures.md)
 - [未決事項](docs/99-open-questions.md)
 
 開発時は [AGENTS.md](AGENTS.md) のルールを優先してください。

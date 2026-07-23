@@ -81,7 +81,7 @@ public class AuthRepository {
     Optional<RefreshRecord> findRefreshToken(String tokenHash) {
         return jdbc.sql("""
                 SELECT id, account_id, family_id, expires_at, used_at, revoked_at
-                FROM refresh_tokens WHERE token_hash = :tokenHash
+                FROM refresh_tokens WHERE token_hash = :tokenHash FOR UPDATE
                 """).param("tokenHash", tokenHash)
                 .query((rs, row) -> new RefreshRecord(rs.getLong("id"), rs.getLong("account_id"),
                         rs.getString("family_id"), rs.getTimestamp("expires_at").toInstant(),
@@ -89,9 +89,10 @@ public class AuthRepository {
                 .optional();
     }
 
-    void rotateRefreshToken(long oldId, long replacementId, Instant usedAt) {
-        jdbc.sql("UPDATE refresh_tokens SET used_at = :usedAt, replaced_by_id = :replacement WHERE id = :id AND used_at IS NULL")
-                .param("usedAt", Timestamp.from(usedAt)).param("replacement", replacementId).param("id", oldId).update();
+    boolean rotateRefreshToken(long oldId, long replacementId, Instant usedAt) {
+        return jdbc.sql("UPDATE refresh_tokens SET used_at = :usedAt, replaced_by_id = :replacement WHERE id = :id AND used_at IS NULL")
+                .param("usedAt", Timestamp.from(usedAt)).param("replacement", replacementId).param("id", oldId)
+                .update() == 1;
     }
 
     void revokeFamily(String familyId, Instant revokedAt) {

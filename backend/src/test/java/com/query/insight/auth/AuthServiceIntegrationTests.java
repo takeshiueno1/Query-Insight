@@ -43,6 +43,17 @@ class AuthServiceIntegrationTests {
         assertThatThrownBy(() -> authService.refresh(login.refreshToken(), "test-reuse"))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("セッション");
+        assertThatThrownBy(() -> authService.refresh(refreshed.refreshToken(), "test-family-revoked"))
+                .isInstanceOf(ApiException.class)
+                .hasMessageContaining("セッション");
+    }
+
+    @Test
+    void unknownLoginIdReturnsTheSameAuthenticationFailure() {
+        assertThatThrownBy(() -> authService.login(
+                "unknown-user@query.local", "QueryInsight#2026", "test-unknown-login"))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("ログインIDまたはパスワードが正しくありません");
     }
 
     @Test

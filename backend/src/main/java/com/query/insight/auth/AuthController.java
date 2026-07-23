@@ -54,7 +54,8 @@ public class AuthController {
     @PostMapping("/logout")
     ResponseEntity<Void> logout(HttpServletRequest request) {
         service.logout(cookieOrNull(request), traceId(request));
-        return ResponseEntity.noContent().header(HttpHeaders.SET_COOKIE, expiredCookie().toString()).build();
+        return ResponseEntity.noContent().header(HttpHeaders.SET_COOKIE, expiredCookie().toString())
+                .header("Clear-Site-Data", "\"cache\", \"cookies\", \"storage\"").build();
     }
 
     @GetMapping("/me")

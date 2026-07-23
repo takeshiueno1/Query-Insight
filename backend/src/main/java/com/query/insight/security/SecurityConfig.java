@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.Base64;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
@@ -34,13 +35,15 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, Converter<Jwt, AbstractAuthenticationToken> converter,
-            OriginValidationFilter originValidationFilter)
+            OriginValidationFilter originValidationFilter, RequestRateLimitFilter requestRateLimitFilter)
             throws Exception {
         http.csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -54,13 +57,35 @@ public class SecurityConfig {
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(oauth -> oauth.jwt(jwt -> jwt.jwtAuthenticationConverter(converter)))
                 .addFilterBefore(originValidationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterAfter(requestRateLimitFilter, BearerTokenAuthenticationFilter.class)
                 .headers(headers -> headers
                         .contentSecurityPolicy(csp -> csp.policyDirectives(
                                 "default-src 'self'; connect-src 'self'; img-src 'self' data:; "
                                         + "style-src 'self'; script-src 'self'; object-src 'none'; "
                                         + "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"))
-                        .frameOptions(frame -> frame.deny()));
+                        .frameOptions(frame -> frame.deny())
+                        .addHeaderWriter(new StaticHeadersWriter("Referrer-Policy", "strict-origin-when-cross-origin"))
+                        .addHeaderWriter(new StaticHeadersWriter("Permissions-Policy",
+                                "camera=(), microphone=(), geolocation=()"))
+                        .addHeaderWriter(new StaticHeadersWriter("Cross-Origin-Opener-Policy", "same-origin"))
+                        .addHeaderWriter(new StaticHeadersWriter("Cross-Origin-Resource-Policy", "same-origin")));
         return http.build();
+    }
+
+    @Bean
+    FilterRegistrationBean<OriginValidationFilter> disableOriginFilterContainerRegistration(
+            OriginValidationFilter filter) {
+        FilterRegistrationBean<OriginValidationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    FilterRegistrationBean<RequestRateLimitFilter> disableRateLimitFilterContainerRegistration(
+            RequestRateLimitFilter filter) {
+        FilterRegistrationBean<RequestRateLimitFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean

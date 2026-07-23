@@ -21,6 +21,7 @@
 - Docker Compose、`.gitignore`、`.env.example`、GitHub Actions CIを追加済み。
 - Render Web ServiceとNeon PostgreSQLを対象にした無料公開版の構成を実装済み。外部リソース作成と実デプロイは未実施。
 - AI分析はローカルOllamaとQwen3を使用し、API利用料と外部AIサービスへの社員情報送信を発生させない構成。Render無料公開版では無効。
+- ログイン・Token更新・AI分析のレート制限、Origin検証、Refresh Token競合防止、セキュリティヘッダー、依存関係監査を実装済み。
 
 ## 3. プロジェクト概要
 
@@ -75,6 +76,7 @@ Query Insight/
 │   ├── 06-traceability.md
 │   ├── 07-free-deployment.md
 │   ├── 08-realistic-sample-data.md
+│   ├── 09-security-measures.md
 │   ├── 99-open-questions.md
 │   └── source/
 │       ├── project-context.md

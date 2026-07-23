@@ -21,23 +21,24 @@
 | --- | --- |
 | パスワード | 15〜128文字、Argon2id（19MiB、2 iterations、parallelism 1） |
 | ロック | 5回失敗で15分。認証失敗理由は統一する |
+| レート制限 | ログイン10回/分、Refresh 30回/分、パスワード再設定3回/10分。上限時は429を返す |
 | Token | RS256、Access 15分、Refresh 8時間、ローテーションと再利用検知 |
 | Cookie | HttpOnly、SameSite=Strict、本番Secure、認証API配下にPath制限 |
 | 認可 | RBACとデータスコープをサーバー側で評価する |
-| CSRF | SameSite Cookieに加え、Refresh/LogoutのOrigin・Fetch Metadataを検証する |
+| CSRF | SameSite Cookieに加え、Login/Refresh/Logout/Password ResetのOrigin・Fetch Metadataを検証する |
 | 入力 | Bean Validation、列挙値・長さ・範囲、SQLプレースホルダー |
 | 出力 | Reactの既定エスケープ、CSP、frame-ancestors拒否 |
 | 監査 | 認証、更新、提出、管理操作をtraceId付きで記録する |
 | 秘密情報 | `.env`、秘密鍵、TokenをGit・ログ・画面へ出さない |
-| AI | 既定無効。送信項目を能力評価データに限定し、契約、保持、費用条件を承認後に本番で有効化する |
+| AI | ローカルOllamaを使用し、外部AIへ送信しない。1アカウント3回/10分、全体同時実行1件に制限する |
 
-本番前にCORS、プロキシ信頼境界、レート制限、TLS終端、鍵ローテーション、脆弱性検査を環境設計と合わせて確定する。
+本番前にプロキシ信頼境界、TLS終端、鍵ローテーション、共有レート制限、脆弱性検査を環境設計と合わせて確定する。実装済み対策は[セキュリティ対策](09-security-measures.md)を参照する。
 
 ## 保守性・運用性
 
 - Flywayでスキーマを前進適用し、破壊的変更はexpand/contract方式とする。
 - RFC 9457形式のエラーと相関IDを用い、利用者向け詳細と内部例外を分離する。
-- Actuator health/info/metricsを提供する。公開範囲は本番ネットワークで制限する。
+- Actuatorはhealthだけを公開し、詳細・info・metricsをHTTP公開しない。
 - 構造化ログ、監視メトリクス、アラート閾値、保持期間、個人情報マスキング規則は未決。
 
 ## 互換性・アクセシビリティ

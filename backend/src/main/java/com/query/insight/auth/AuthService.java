@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Locale;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -25,6 +26,7 @@ public class AuthService {
     private final JwtService jwtService;
     private final AuditService auditService;
     private final Duration refreshTtl;
+    private final String dummyPasswordHash;
 
     public AuthService(AuthRepository repository, PasswordEncoder passwordEncoder, JwtService jwtService,
             AuditService auditService, @Value("${app.auth.refresh-token-ttl}") Duration refreshTtl) {
@@ -33,13 +35,21 @@ public class AuthService {
         this.jwtService = jwtService;
         this.auditService = auditService;
         this.refreshTtl = refreshTtl;
+        byte[] dummyPassword = new byte[32];
+        RANDOM.nextBytes(dummyPassword);
+        this.dummyPasswordHash = passwordEncoder.encode(
+                Base64.getUrlEncoder().withoutPadding().encodeToString(dummyPassword));
     }
 
     @Transactional
     public Session login(String loginId, String password, String traceId) {
         String normalized = loginId.strip().toLowerCase(Locale.ROOT);
-        AuthRepository.AccountRecord account = repository.findAccount(normalized)
-                .orElseThrow(AuthService::invalidCredentials);
+        Optional<AuthRepository.AccountRecord> candidate = repository.findAccount(normalized);
+        if (candidate.isEmpty()) {
+            passwordEncoder.matches(password, dummyPasswordHash);
+            throw invalidCredentials();
+        }
+        AuthRepository.AccountRecord account = candidate.orElseThrow();
         Instant now = Instant.now();
         if (!"ACTIVE".equals(account.status()) || account.lockedUntil() != null && account.lockedUntil().isAfter(now)) {
             auditService.record(account.id(), "AUTH_LOGIN", "ACCOUNT", account.publicId(), "DENIED", null, traceId);
@@ -57,7 +67,7 @@ public class AuthService {
         return createSession(repository.principal(account), PublicIdGenerator.next(), now);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = RefreshReuseException.class)
     public Session refresh(String rawToken, String traceId) {
         Instant now = Instant.now();
         AuthRepository.RefreshRecord refresh = repository.findRefreshToken(Hashing.sha256(rawToken))
@@ -67,14 +77,16 @@ public class AuthService {
         }
         if (refresh.usedAt() != null) {
             repository.revokeFamily(refresh.familyId(), now);
-            throw invalidRefresh();
+            throw reusedRefresh();
         }
         AuthRepository.AccountRecord account = repository.findAccountById(refresh.accountId())
                 .filter(candidate -> "ACTIVE".equals(candidate.status()))
                 .orElseThrow(AuthService::invalidRefresh);
         Session session = createSession(repository.principal(account), refresh.familyId(), now);
         long replacementId = repository.findRefreshToken(Hashing.sha256(session.refreshToken())).orElseThrow().id();
-        repository.rotateRefreshToken(refresh.id(), replacementId, now);
+        if (!repository.rotateRefreshToken(refresh.id(), replacementId, now)) {
+            throw invalidRefresh();
+        }
         auditService.record(account.id(), "AUTH_REFRESH", "ACCOUNT", account.publicId(), "SUCCESS", "SELF", traceId);
         return session;
     }
@@ -109,6 +121,16 @@ public class AuthService {
 
     private static ApiException invalidRefresh() {
         return new ApiException(HttpStatus.UNAUTHORIZED, "SESSION_EXPIRED", "セッションの有効期限が切れました。再度ログインしてください");
+    }
+
+    private static RefreshReuseException reusedRefresh() {
+        return new RefreshReuseException();
+    }
+
+    private static final class RefreshReuseException extends ApiException {
+        private RefreshReuseException() {
+            super(HttpStatus.UNAUTHORIZED, "SESSION_EXPIRED", "セッションの有効期限が切れました。再度ログインしてください");
+        }
     }
 
     public record Session(String accessToken, long expiresIn, String refreshToken, AccountPrincipal principal) {
