@@ -51,7 +51,7 @@
 | ULID公開ID | `PublicIdGeneratorTests` | URLとAPIに数値IDが出ないこと |
 | UIの代替表 | `RadarChart.test.tsx` | キーボード、狭幅、コントラスト |
 | DBマイグレーション | Spring context / Flyway test | PostgreSQL 18.4で新規起動 |
-| ローカル能力データ | `AuthServiceIntegrationTests` | 50名・300評価明細・250スキル・150知識・経歴・資格が表示されること |
+| ローカル能力データ | `AuthServiceIntegrationTests` | 50名のリアリティデータ＋簡易確認1名、306評価明細・255スキル・153知識・経歴・資格が表示されること |
 | AIリクエスト契約 | `OllamaAnalysisClientTests` | `qwen3:4b`取得済み環境で分析結果が表示・保存されること |
 | ローカル再現性 | Docker Compose構文・起動確認 | `http://localhost:8088` の主要フロー |
 

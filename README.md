@@ -43,8 +43,9 @@ docker compose up --build backend frontend
 | 管理者 | `admin@query.local` | `QueryInsight#2026` |
 | 上長 | `manager@query.local` | `QueryInsight#2026` |
 | 社員 | `employee@query.local` | `QueryInsight#2026` |
+| 簡易動作確認 | `test` | `test` |
 
-これらはローカル用の架空データです。50名全員に提出済みの6能力軸、スキル、専門知識、業務経歴、資格を登録しています。`QI0006`～`QI0050` は `qi0006@query.local` のように社員番号を小文字にしたログインIDと同じローカルパスワードで確認できます。詳細は[50名リアリティデータ](docs/08-realistic-sample-data.md)を参照してください。本番環境では `local` プロファイルを使用せず、RSA秘密鍵・公開鍵を `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` で設定してください。
+これらはローカル用の架空データです。50名のリアリティデータに加え、簡易動作確認専用の1名を登録しています。全員に提出済みの6能力軸、スキル、専門知識、業務経歴、資格を登録しています。`QI0006`～`QI0050` は `qi0006@query.local` のように社員番号を小文字にしたログインIDと同じローカルパスワードで確認できます。`test` は短い認証情報を意図的に使用するローカル専用アカウントであり、本番環境には作成されません。詳細は[50名リアリティデータ](docs/08-realistic-sample-data.md)を参照してください。本番環境では `local` プロファイルを使用せず、RSA秘密鍵・公開鍵を `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` で設定してください。
 
 ## ローカルAI分析
 

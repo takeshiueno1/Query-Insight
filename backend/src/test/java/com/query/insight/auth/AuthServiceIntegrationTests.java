@@ -57,6 +57,15 @@ class AuthServiceIntegrationTests {
     }
 
     @Test
+    void localTestUserCanLoginWithRequestedCredentials() {
+        AuthService.Session login = authService.login("test", "test", "test-local-user");
+
+        assertThat(login.accessToken()).isNotBlank();
+        assertThat(login.principal().displayName()).isEqualTo("テスト ユーザー");
+        assertThat(login.principal().roles()).containsExactly("EMPLOYEE");
+    }
+
+    @Test
     void localSeedContainsProductionLikeEmployeesAndSubmittedCapabilities() {
         Integer employeeCount = jdbc.sql("SELECT COUNT(*) FROM employees").query(Integer.class).single();
         Integer submittedAxisCount = jdbc.sql("""
@@ -70,7 +79,7 @@ class AuthServiceIntegrationTests {
                   AND ed.level > 0
                 """).query(Integer.class).single();
 
-        assertThat(employeeCount).isEqualTo(50);
+        assertThat(employeeCount).isEqualTo(51);
         assertThat(submittedAxisCount).isEqualTo(6);
     }
 
@@ -78,14 +87,14 @@ class AuthServiceIntegrationTests {
     void realisticSeedIsCompleteAndIdempotent() throws Exception {
         realisticDataInitializer.run(null);
 
-        assertThat(count("employees")).isEqualTo(50);
-        assertThat(count("accounts")).isEqualTo(50);
-        assertThat(count("evaluation_targets")).isEqualTo(50);
-        assertThat(count("self_evaluation_details")).isEqualTo(300);
-        assertThat(count("employee_skills")).isEqualTo(250);
-        assertThat(count("employee_knowledge")).isEqualTo(150);
-        assertThat(count("career_histories")).isGreaterThanOrEqualTo(50);
-        assertThat(count("employee_certifications")).isEqualTo(50);
+        assertThat(count("employees")).isEqualTo(51);
+        assertThat(count("accounts")).isEqualTo(51);
+        assertThat(count("evaluation_targets")).isEqualTo(51);
+        assertThat(count("self_evaluation_details")).isEqualTo(306);
+        assertThat(count("employee_skills")).isEqualTo(255);
+        assertThat(count("employee_knowledge")).isEqualTo(153);
+        assertThat(count("career_histories")).isGreaterThanOrEqualTo(51);
+        assertThat(count("employee_certifications")).isEqualTo(51);
     }
 
     @Test

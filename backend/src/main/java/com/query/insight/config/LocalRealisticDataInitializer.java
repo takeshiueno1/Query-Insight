@@ -194,6 +194,8 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
                     email, department, managerNo, position(number, department),
                     LocalDate.of(2013 + number % 12, 1 + number % 12, 1 + number % 24)));
         }
+        result.add(new EmployeeSeed(51, "QITEST", "テスト", "ユーザー", "test@query.local", "DEV", "QI0002",
+                "ローカル動作確認ユーザー", LocalDate.of(2026, 7, 1)));
         return result;
     }
 
@@ -257,12 +259,14 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
 
     private void ensureAccountAndRoles(EmployeeSeed seed, LocalDateTime now) {
         long employeeId = employeeId(seed.employeeNo());
+        boolean testUser = "QITEST".equals(seed.employeeNo());
         if (count("SELECT COUNT(*) FROM accounts WHERE employee_id=:employeeId", "employeeId", employeeId) == 0) {
             jdbc.sql("""
                     INSERT INTO accounts(public_id,employee_id,login_id_normalized,password_hash,status,failed_count,
                       password_changed_at,version) VALUES (:publicId,:employeeId,:loginId,:hash,'ACTIVE',0,:now,0)
                     """).param("publicId", PublicIdGenerator.next()).param("employeeId", employeeId)
-                    .param("loginId", seed.email().toLowerCase()).param("hash", encoder.encode(LOCAL_PASSWORD))
+                    .param("loginId", testUser ? "test" : seed.email().toLowerCase())
+                    .param("hash", encoder.encode(testUser ? "test" : LOCAL_PASSWORD))
                     .param("now", now).update();
         }
         grantIfMissing(employeeId, "EMPLOYEE", "SELF", "ローカル検証用本人権限", now);

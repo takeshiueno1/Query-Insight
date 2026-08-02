@@ -5,15 +5,20 @@ import jakarta.validation.ConstraintViolationException;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
     @ExceptionHandler(ApiException.class)
     ResponseEntity<ProblemDetail> handleApi(ApiException exception, HttpServletRequest request) {
         return response(exception.status(), exception.code(), exception.getMessage(), request, List.of());
@@ -32,8 +37,15 @@ public class GlobalExceptionHandler {
         return response(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "入力内容を確認してください", request, List.of());
     }
 
+    @ExceptionHandler(AccessDeniedException.class)
+    ResponseEntity<ProblemDetail> handleAccessDenied(AccessDeniedException exception, HttpServletRequest request) {
+        return response(HttpStatus.FORBIDDEN, "ACCESS_DENIED", "この操作を行う権限がありません", request, List.of());
+    }
+
     @ExceptionHandler(Exception.class)
     ResponseEntity<ProblemDetail> handleUnexpected(Exception exception, HttpServletRequest request) {
+        log.error("Unexpected request failure traceId={} path={}",
+                request.getAttribute(TraceIdFilter.ATTRIBUTE), request.getRequestURI(), exception);
         return response(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR",
                 "処理を完了できませんでした。問い合わせIDを管理者へお伝えください", request, List.of());
     }

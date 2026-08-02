@@ -108,7 +108,7 @@ public class AuthController {
     }
 
     public record LoginRequest(@NotBlank @Size(max = 254) String loginId,
-            @NotBlank @Size(min = 15, max = 128) String password) {
+            @NotBlank @Size(max = 128) String password) {
     }
 
     public record TokenResponse(String accessToken, String tokenType, long expiresIn, MeResponse user) {
