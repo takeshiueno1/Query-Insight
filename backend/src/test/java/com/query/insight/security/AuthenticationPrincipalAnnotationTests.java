@@ -7,6 +7,8 @@ import com.query.insight.analysis.AiAnalysisController;
 import com.query.insight.dashboard.DashboardController;
 import com.query.insight.employee.EmployeeController;
 import com.query.insight.evaluation.EvaluationController;
+import com.query.insight.evaluation.ExecutiveEvaluationController;
+import com.query.insight.evaluation.ManagerEvaluationController;
 import com.query.insight.notification.NotificationController;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -21,7 +23,8 @@ class AuthenticationPrincipalAnnotationTests {
     @Test
     void jwtControllerParametersAreResolvedFromTheAuthenticatedPrincipal() {
         List<Class<?>> controllers = List.of(AuthController.class, AiAnalysisController.class, DashboardController.class,
-                EmployeeController.class, EvaluationController.class, NotificationController.class);
+                EmployeeController.class, EvaluationController.class, ManagerEvaluationController.class,
+                ExecutiveEvaluationController.class, NotificationController.class);
 
         for (Class<?> controller : controllers) {
             for (Method method : controller.getDeclaredMethods()) {

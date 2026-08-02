@@ -12,9 +12,9 @@
 | SCR-006 | 業務経歴編集 | `/careers/edit` | 一覧API接続済み、編集未実装 |
 | SCR-007 | スキル編集 | `/skills/edit` | 一覧API接続済み、編集未実装 |
 | SCR-008 | 資格編集 | `/certifications/edit` | 一覧API接続済み、編集未実装 |
-| SCR-009 | 自己評価 | `/evaluations/self` | 下書き・提出API接続済み |
-| SCR-010 | 上長評価 | `/evaluations/manager` | 画面骨格 |
-| SCR-011 | 評価管理 | `/evaluations/manage` | 画面骨格 |
+| SCR-009 | 自己評価 | `/evaluations/self` | 下書き・提出、最終承認後の確定結果API接続済み |
+| SCR-010 | 上長評価 | `/evaluations/manager`、`/evaluations/manager/:publicId` | 一覧・比較入力・差戻し・提出API接続済み |
+| EXECUTIVE | 経営ダッシュボード・最終承認 | `/executive/evaluations`、`/executive/evaluations/:publicId` | 全社集計・個人承認・差戻し・再オープンAPI接続済み |
 | SCR-012 | AI分析 | `/analysis` | ローカルOllama接続済み |
 | SCR-013 | 通知 | `/notifications` | 一覧API接続済み |
 | SCR-014 | マスタ管理 | `/masters` | 画面骨格 |
@@ -40,7 +40,7 @@
 | 監査 | `GET /api/v1/audit-logs` | 実装済み |
 | AI | `POST /api/v1/ai-analyses` | 評価・スキル・知識・経歴・資格を匿名化してローカルOllamaへ連携、JSON Schema出力・監査・結果保存を実装 |
 | スキル・知識・資格・経歴 | `GET /api/v1/employees/:publicId/talent-profile` | 権限スコープ付き一覧を実装、更新・承認APIは未実装 |
-| 上長評価・承認 | 詳細設計書の評価・承認API | 未実装 |
+| 上長評価・経営者承認 | `/api/v1/manager-evaluations/**`、`/api/v1/executive/evaluations/**`、`GET /api/v1/evaluations/me/final-result` | 実装済み。割当・`EXECUTIVE`スコープ、楽観ロック、版・履歴、監査、通知を適用 |
 | 組織・アカウント・マスタ | 詳細設計書の管理API | 未実装 |
 
 ## 主要要件の検証方法
@@ -57,6 +57,6 @@
 
 ## 完了判定
 
-今回の成果物は「初期実装・設計検証用MVP」であり、詳細設計書の全76 APIを完了した本番リリース版ではない。`画面骨格`・`未実装` の行は、業務未決事項の確定後にAPI、認可、監査、単体・結合・E2Eテストを追加する必要がある。
+今回の成果物は「初期実装・設計検証用MVP」であり、詳細設計書の全76 APIを完了した本番リリース版ではない。評価承認フローは完成しているが、残る`画面骨格`・`未実装`の行は、業務未決事項の確定後にAPI、認可、監査、単体・結合・E2Eテストを追加する必要がある。
 
 無料公開版は `Dockerfile.free` でReactとSpring Bootを統合し、`.github/workflows/ci.yml` でBackend、Frontend、統合イメージを検証する。Render・Neon上の実デプロイと外部疎通はアカウント・秘密情報の設定後に確認する。

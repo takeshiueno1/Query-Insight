@@ -48,7 +48,8 @@ public class BootstrapAdminInitializer implements ApplicationRunner {
             return;
         }
         validateConfiguration();
-        if (count("departments") + count("employees") + count("roles") + count("permission_grants") > 0) {
+        // Roles may already be provisioned by Flyway; only identity-bearing rows make bootstrap unsafe.
+        if (count("departments") + count("employees") + count("permission_grants") > 0) {
             throw new IllegalStateException("Bootstrap admin requires an empty identity schema");
         }
 
@@ -73,8 +74,9 @@ public class BootstrapAdminInitializer implements ApplicationRunner {
         long employeeId = jdbc.sql("SELECT id FROM employees WHERE public_id=:publicId")
                 .param("publicId", employeePublicId).query(Long.class).single();
 
-        List.of("EMPLOYEE", "MANAGER", "SALES", "HR", "SYSTEM_ADMIN", "AUDITOR").forEach(role ->
-                jdbc.sql("INSERT INTO roles(code,name,status) VALUES (:code,:name,'ACTIVE')")
+        List.of("EMPLOYEE", "MANAGER", "SALES", "HR", "SYSTEM_ADMIN", "AUDITOR", "EXECUTIVE").forEach(role ->
+                jdbc.sql("INSERT INTO roles(code,name,status) SELECT :code,:name,'ACTIVE' "
+                                + "WHERE NOT EXISTS (SELECT 1 FROM roles WHERE code=:code)")
                         .param("code", role).param("name", role).update());
 
         String accountPublicId = PublicIdGenerator.next();

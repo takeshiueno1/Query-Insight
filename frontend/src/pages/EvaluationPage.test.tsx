@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SelfEvaluation } from '../types'
+import type { FinalEvaluationResult, SelfEvaluation } from '../types'
 import { EvaluationPage } from './EvaluationPage'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
@@ -29,7 +29,9 @@ describe('EvaluationPage', () => {
   beforeEach(() => apiMock.mockReset())
 
   it('提出済み評価を参照専用で表示する', async () => {
-    apiMock.mockResolvedValue(submittedEvaluation)
+    apiMock.mockImplementation((path?: string) => Promise.resolve(path?.endsWith('/final-result')
+      ? { status: 'SELF_SUBMITTED', finalScore: null, finalGrade: null, summary: null, details: [] }
+      : submittedEvaluation))
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><EvaluationPage /></QueryClientProvider>)
 
@@ -37,5 +39,17 @@ describe('EvaluationPage', () => {
     expect(screen.getByRole('button', { name: '下書き保存' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '根拠を確認して提出' })).toBeDisabled()
     screen.getAllByRole('textbox').forEach((textbox) => expect(textbox).toBeDisabled())
+    expect(screen.queryByText('上長だけが知る総評')).not.toBeInTheDocument()
+  })
+
+  it('最終承認後だけ確定評価と上長総評を表示する', async () => {
+    const result: FinalEvaluationResult = { status: 'FINALIZED', finalScore: 4.25, finalGrade: 'A', summary: '上長だけが知る総評', details: [{ axisCode: 'TECHNICAL', displayName: '技術力', selfLevel: 4, managerLevel: 5, comment: '成果を確認' }] }
+    apiMock.mockImplementation((path?: string) => Promise.resolve(path?.endsWith('/final-result') ? result : submittedEvaluation))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><EvaluationPage /></QueryClientProvider>)
+
+    expect(await screen.findByText('確定評価')).toBeInTheDocument()
+    expect(screen.getByText('上長だけが知る総評')).toBeInTheDocument()
+    expect(screen.getByText('4.25')).toBeInTheDocument()
   })
 })

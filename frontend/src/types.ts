@@ -81,6 +81,72 @@ export type SelfEvaluation = {
   }>
 }
 
+export type ManagerEvaluationListItem = {
+  publicId: string
+  employeeName: string
+  departmentName: string | null
+  periodName: string
+  status: string
+  version: number
+  late: boolean
+}
+
+export type EvaluationComparisonDetail = {
+  axisCode: string
+  displayName: string
+  description: string
+  selfLevel: number | null
+  selfEvidence: string | null
+  managerLevel: number | null
+  managerComment: string | null
+}
+
+export type ManagerEvaluation = {
+  publicId: string
+  employeePublicId: string
+  employeeName: string
+  departmentName: string | null
+  periodName: string
+  status: string
+  targetVersion: number
+  late: boolean
+  summary: string | null
+  score: number | null
+  grade: string | null
+  details: EvaluationComparisonDetail[]
+}
+
+export type ExecutiveDashboard = {
+  counts: { total: number; pending: number; finalized: number; overdue: number }
+  items: Array<{ publicId: string; employeeName: string; departmentName: string | null; status: string; version: number; finalScore: number | null; finalGrade: string | null; periodName: string; late: boolean }>
+  distributions: Array<{ departmentName: string; grade: string; employeeCount: number }>
+}
+
+export type ExecutiveEvaluation = {
+  publicId: string
+  employeeName: string
+  departmentName: string | null
+  periodName: string
+  status: string
+  targetVersion: number
+  late: boolean
+  summary: string | null
+  score: number | null
+  grade: string | null
+  finalScore: number | null
+  finalGrade: string | null
+  details: EvaluationComparisonDetail[]
+  events: Array<{ action: string; fromStatus: string; toStatus: string; reason: string | null; comment: string | null; late: boolean; deadlineType: 'SELF' | 'MANAGER'; occurredAt: string }>
+}
+
+export type FinalEvaluationResult = {
+  status: string
+  finalScore: number | null
+  finalGrade: string | null
+  summary: string | null
+  details: Array<{ axisCode: string; displayName: string; selfLevel: number; managerLevel: number; comment: string | null }>
+}
+
 export type AiAnalysis = {
   publicId: string
   periodName: string

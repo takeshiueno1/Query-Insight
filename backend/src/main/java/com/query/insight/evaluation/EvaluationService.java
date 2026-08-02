@@ -1,6 +1,9 @@
 package com.query.insight.evaluation;
 
 import com.query.insight.common.ApiException;
+import com.query.insight.common.PublicIdGenerator;
+import com.query.insight.audit.AuditService;
+import com.query.insight.notification.NotificationService;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -16,9 +19,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class EvaluationService {
     private static final Set<String> AXES = Set.of("TECHNICAL", "DESIGN", "BUSINESS", "COMMUNICATION", "DELIVERY", "IMPROVEMENT");
     private final JdbcClient jdbc;
+    private final NotificationService notifications;
+    private final AuditService audit;
 
-    public EvaluationService(JdbcClient jdbc) {
+    public EvaluationService(JdbcClient jdbc, NotificationService notifications, AuditService audit) {
         this.jdbc = jdbc;
+        this.notifications = notifications;
+        this.audit = audit;
     }
 
     public SelfEvaluation get(String employeePublicId) {
@@ -40,7 +47,7 @@ public class EvaluationService {
     @Transactional
     public SelfEvaluation save(String employeePublicId, SaveRequest request) {
         Target target = target(employeePublicId);
-        if (!("SELF_IN_PROGRESS".equals(target.status()) || "RETURNED".equals(target.status()))) {
+        if (!("SELF_IN_PROGRESS".equals(target.status()) || "SELF_RETURNED".equals(target.status()))) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "EVALUATION_STATE_INVALID", "現在の状態では自己評価を編集できません");
         }
         if (request.version() != target.version()) {
@@ -68,31 +75,54 @@ public class EvaluationService {
     }
 
     @Transactional
-    public SelfEvaluation submit(String employeePublicId, SaveRequest request) {
+    public SelfEvaluation submit(String employeePublicId, String actorAccountPublicId, SaveRequest request,
+            String traceId) {
+        Target before = target(employeePublicId);
         SelfEvaluation saved = save(employeePublicId, request);
         validate(request.details(), true);
         double score = request.details().stream().mapToInt(SaveDetail::level).average().orElseThrow();
         int updated = jdbc.sql("""
                 UPDATE evaluation_targets SET status='SELF_SUBMITTED',provisional_score=:score,
                   submitted_at=:submittedAt,version=version+1
-                WHERE public_id=:publicId AND version=:version AND status IN ('SELF_IN_PROGRESS','RETURNED')
+                WHERE public_id=:publicId AND version=:version AND status IN ('SELF_IN_PROGRESS','SELF_RETURNED')
                 """).param("score", score).param("submittedAt", Timestamp.from(Instant.now()))
                 .param("publicId", saved.publicId())
                 .param("version", saved.version()).update();
         if (updated == 0) throw conflict();
+        long actorAccountId = jdbc.sql("SELECT id FROM accounts WHERE public_id=:publicId AND status='ACTIVE'")
+                .param("publicId", actorAccountPublicId).query(Long.class).optional()
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "ACCOUNT_INVALID", "有効なアカウントが必要です"));
+        long nextVersion = saved.version() + 1;
+        jdbc.sql("""
+                INSERT INTO evaluation_workflow_events(public_id,target_id,actor_account_id,action,from_status,
+                  to_status,late,deadline_type,occurred_at,trace_id)
+                VALUES (:publicId,:targetId,:actorId,'SELF_SUBMIT',:fromStatus,'SELF_SUBMITTED',:late,'SELF',:now,:traceId)
+                """).param("publicId", PublicIdGenerator.next()).param("targetId", before.id())
+                .param("actorId", actorAccountId).param("fromStatus", before.status())
+                .param("late", before.selfDeadline().isBefore(Instant.now())).param("now", Timestamp.from(Instant.now()))
+                .param("traceId", traceId).update();
+        notifications.notifyEmployee(before.evaluatorId(), "MANAGER_EVALUATION_REQUIRED", "自己評価が提出されました",
+                before.employeeName() + "さんの上長評価を入力してください。",
+                "/evaluations/manager/" + before.publicId(),
+                "EVAL:" + before.publicId() + ":SELF_SUBMIT:" + nextVersion);
+        audit.record(actorAccountId, "EVALUATION_SELF_SUBMIT", "EVALUATION_TARGET", before.publicId(), "SUCCESS",
+                "SELF", traceId);
         return get(employeePublicId);
     }
 
     private Target target(String employeePublicId) {
         return jdbc.sql("""
-                SELECT t.id,t.public_id,t.status,t.version,p.name period_name
+                SELECT t.id,t.public_id,t.status,t.version,p.name period_name,p.self_deadline,t.evaluator_employee_id,
+                  CONCAT(e.last_name,' ',e.first_name) employee_name
                 FROM evaluation_targets t JOIN employees e ON e.id=t.employee_id
                 JOIN evaluation_periods p ON p.id=t.period_id
                 WHERE e.public_id=:employeePublicId AND p.status='OPEN'
                 ORDER BY p.start_date DESC LIMIT 1
                 """).param("employeePublicId", employeePublicId)
                 .query((rs, row) -> new Target(rs.getLong("id"), rs.getString("public_id"),
-                        rs.getString("status"), rs.getLong("version"), rs.getString("period_name")))
+                        rs.getString("status"), rs.getLong("version"), rs.getString("period_name"),
+                        rs.getTimestamp("self_deadline").toInstant(), rs.getLong("evaluator_employee_id"),
+                        rs.getString("employee_name")))
                 .optional().orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "EVALUATION_NOT_FOUND", "現在受付中の自己評価はありません"));
     }
 
@@ -117,7 +147,8 @@ public class EvaluationService {
         return new ApiException(HttpStatus.CONFLICT, "OPTIMISTIC_LOCK_CONFLICT", "他の利用者が更新しました。再読み込みしてください");
     }
 
-    record Target(long id, String publicId, String status, long version, String periodName) {
+    record Target(long id, String publicId, String status, long version, String periodName, Instant selfDeadline,
+            long evaluatorId, String employeeName) {
     }
     public record SelfEvaluation(String publicId, String periodName, String status, long version, List<Detail> details) {
     }

@@ -2,6 +2,7 @@ package com.query.insight.config;
 
 import com.query.insight.common.PublicIdGenerator;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -70,6 +71,79 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
             ensureEvaluation(employee, now);
             ensureTalentProfile(employee, now);
         }
+        jdbc.sql("UPDATE evaluation_periods SET manager_deadline=:deadline WHERE status='OPEN'")
+                .param("deadline", LocalDateTime.of(2026, 7, 31, 23, 59)).update();
+        ensureApprovalExample("QI0004", "EXECUTIVE_REVIEW", now);
+        ensureApprovalExample("QI0005", "FINALIZED", now);
+        ensureApprovalExample("QI0007", "MANAGER_RETURNED", now);
+    }
+
+    private void ensureApprovalExample(String employeeNo, String targetStatus, LocalDateTime now) {
+        Map<String, Object> target = jdbc.sql("""
+                SELECT t.id target_id,t.public_id target_public_id,t.evaluator_employee_id
+                FROM evaluation_targets t JOIN employees e ON e.id=t.employee_id
+                WHERE e.employee_no=:employeeNo
+                """).param("employeeNo", employeeNo).query().singleRow();
+        long targetId = ((Number) target.get("TARGET_ID")).longValue();
+        if (count("SELECT COUNT(*) FROM manager_evaluations WHERE target_id=:targetId", "targetId", targetId) > 0) {
+            return;
+        }
+        String managerStatus = "FINALIZED".equals(targetStatus) ? "FINALIZED"
+                : "EXECUTIVE_REVIEW".equals(targetStatus) ? "SUBMITTED" : "DRAFT";
+        List<Integer> levels = jdbc.sql("SELECT level FROM self_evaluation_details WHERE target_id=:targetId")
+                .param("targetId", targetId).query(Integer.class).list();
+        BigDecimal score = BigDecimal.valueOf(levels.stream().mapToInt(Integer::intValue).sum())
+                .divide(BigDecimal.valueOf(levels.size()), 2, RoundingMode.HALF_UP);
+        String grade = score.compareTo(new BigDecimal("4.50")) >= 0 ? "S"
+                : score.compareTo(new BigDecimal("4.00")) >= 0 ? "A"
+                : score.compareTo(new BigDecimal("3.00")) >= 0 ? "B" : "C";
+        jdbc.sql("""
+                INSERT INTO manager_evaluations(public_id,target_id,revision_no,status,summary,weighted_score,grade,
+                  submitted_at,finalized_at,version)
+                VALUES (:publicId,:targetId,1,:status,:summary,:score,:grade,:submittedAt,:finalizedAt,0)
+                """).param("publicId", PublicIdGenerator.next()).param("targetId", targetId)
+                .param("status", managerStatus).param("summary", "安定した成果と今後の成長可能性を確認しました。")
+                .param("score", score).param("grade", grade)
+                .param("submittedAt", "DRAFT".equals(managerStatus) ? null : now)
+                .param("finalizedAt", "FINALIZED".equals(managerStatus) ? now : null).update();
+        long managerEvaluationId = jdbc.sql("SELECT id FROM manager_evaluations WHERE target_id=:targetId")
+                .param("targetId", targetId).query(Long.class).single();
+        jdbc.sql("""
+                INSERT INTO manager_evaluation_details(manager_evaluation_id,axis_code,level,comment)
+                SELECT :managerId,axis_code,level,
+                  CASE WHEN axis_code='TECHNICAL' THEN '成果物と日常の行動を踏まえて判断しました。' ELSE NULL END
+                FROM self_evaluation_details WHERE target_id=:targetId
+                """).param("managerId", managerEvaluationId).param("targetId", targetId).update();
+        jdbc.sql("""
+                UPDATE evaluation_targets SET status=:status,current_manager_evaluation_id=:managerId,
+                  final_score=:finalScore,final_grade=:finalGrade,finalized_at=:finalizedAt,version=version+1
+                WHERE id=:targetId
+                """).param("status", targetStatus).param("managerId", managerEvaluationId)
+                .param("finalScore", "FINALIZED".equals(targetStatus) ? score : null)
+                .param("finalGrade", "FINALIZED".equals(targetStatus) ? grade : null)
+                .param("finalizedAt", "FINALIZED".equals(targetStatus) ? now : null).param("targetId", targetId).update();
+        long actorAccountId = "FINALIZED".equals(targetStatus) || "MANAGER_RETURNED".equals(targetStatus)
+                ? accountId("QI0039")
+                : jdbc.sql("SELECT id FROM accounts WHERE employee_id=:employeeId")
+                        .param("employeeId", ((Number) target.get("EVALUATOR_EMPLOYEE_ID")).longValue())
+                        .query(Long.class).single();
+        String action = "FINALIZED".equals(targetStatus) ? "EXECUTIVE_APPROVE"
+                : "MANAGER_RETURNED".equals(targetStatus) ? "EXECUTIVE_RETURN" : "MANAGER_SUBMIT";
+        String fromStatus = "MANAGER_RETURNED".equals(targetStatus) ? "EXECUTIVE_REVIEW" : "MANAGER_IN_PROGRESS";
+        jdbc.sql("""
+                INSERT INTO evaluation_workflow_events(public_id,target_id,manager_evaluation_id,actor_account_id,
+                  action,from_status,to_status,reason,late,occurred_at,trace_id)
+                VALUES (:publicId,:targetId,:managerId,:actorId,:action,:fromStatus,:toStatus,:reason,TRUE,:now,:traceId)
+                """).param("publicId", PublicIdGenerator.next()).param("targetId", targetId)
+                .param("managerId", managerEvaluationId).param("actorId", actorAccountId).param("action", action)
+                .param("fromStatus", fromStatus).param("toStatus", targetStatus)
+                .param("reason", "MANAGER_RETURNED".equals(targetStatus) ? "経営判断の根拠を総評へ追記してください。" : null)
+                .param("now", now).param("traceId", PublicIdGenerator.next()).update();
+    }
+
+    private long accountId(String employeeNo) {
+        return jdbc.sql("SELECT a.id FROM accounts a JOIN employees e ON e.id=a.employee_id WHERE e.employee_no=:employeeNo")
+                .param("employeeNo", employeeNo).query(Long.class).single();
     }
 
     private void ensureDepartments(LocalDateTime now) {
@@ -95,7 +169,7 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
     }
 
     private void ensureRoles() {
-        for (String role : List.of("EMPLOYEE", "MANAGER", "SALES", "HR", "SYSTEM_ADMIN", "AUDITOR")) {
+        for (String role : List.of("EMPLOYEE", "MANAGER", "SALES", "HR", "SYSTEM_ADMIN", "AUDITOR", "EXECUTIVE")) {
             if (count("SELECT COUNT(*) FROM roles WHERE code=:code", "code", role) == 0) {
                 jdbc.sql("INSERT INTO roles(code,name,status) VALUES (:code,:name,'ACTIVE')")
                         .param("code", role).param("name", role).update();
@@ -272,6 +346,9 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
         grantIfMissing(employeeId, "EMPLOYEE", "SELF", "ローカル検証用本人権限", now);
         if (isManager(seed.number())) {
             grantIfMissing(employeeId, "MANAGER", "SUBORDINATES", "ローカル検証用評価者権限", now);
+        }
+        if (seed.number() == 39) {
+            grantIfMissing(employeeId, "EXECUTIVE", "ALL", "ローカル検証用経営者権限", now);
         }
     }
 

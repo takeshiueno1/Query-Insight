@@ -9,6 +9,10 @@ import { EmployeeFormPage } from './pages/EmployeeFormPage'
 import { EmployeesPage } from './pages/EmployeesPage'
 import { ErrorPage } from './pages/ErrorPage'
 import { EvaluationPage } from './pages/EvaluationPage'
+import { ManagerEvaluationsPage } from './pages/ManagerEvaluationsPage'
+import { ManagerEvaluationDetailPage } from './pages/ManagerEvaluationDetailPage'
+import { ExecutiveDashboardPage } from './pages/ExecutiveDashboardPage'
+import { ExecutiveEvaluationDetailPage } from './pages/ExecutiveEvaluationDetailPage'
 import { FeaturePage } from './pages/FeaturePage'
 import { LoginPage } from './pages/LoginPage'
 import { NotificationsPage } from './pages/NotificationsPage'
@@ -33,8 +37,10 @@ export default function App() {
       <Route path="skills/edit" element={<TalentProfilePage />} />
       <Route path="certifications/edit" element={<TalentProfilePage />} />
       <Route path="evaluations/self" element={<EvaluationPage />} />
-      <Route path="evaluations/manager" element={<FeaturePage screenId="SCR-010" title="上長評価" description="自己評価と根拠を確認し、独立した上長評価を登録します" sections={['評価対象', '6軸評価', '差し戻し・提出']} />} />
-      <Route path="evaluations/manage" element={<FeaturePage screenId="SCR-011" title="評価管理" description="評価期間、対象者、確定・訂正を管理します" sections={['評価期間', '進捗管理', '確定・訂正']} />} />
+      <Route path="evaluations/manager" element={<ManagerEvaluationsPage />} />
+      <Route path="evaluations/manager/:publicId" element={<ManagerEvaluationDetailPage />} />
+      <Route path="executive/evaluations" element={<ExecutiveDashboardPage />} />
+      <Route path="executive/evaluations/:publicId" element={<ExecutiveEvaluationDetailPage />} />
       <Route path="analysis" element={<AiAnalysisPage />} />
       <Route path="notifications" element={<NotificationsPage />} />
       <Route path="masters" element={<FeaturePage screenId="SCR-014" title="マスタ管理" description="評価基準版とスキル・資格マスタを履歴管理します" sections={['評価基準版', 'スキルマスタ', '資格マスタ']} />} />

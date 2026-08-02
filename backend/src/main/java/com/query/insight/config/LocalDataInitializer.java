@@ -55,8 +55,9 @@ public class LocalDataInitializer implements ApplicationRunner {
                 adminEmployeeId, "アカウントエグゼクティブ", LocalDate.of(2019, 1, 15), now);
         long salesEmployeeId = employeeId(salesEmployeePublicId);
 
-        List.of("EMPLOYEE", "MANAGER", "SALES", "HR", "SYSTEM_ADMIN", "AUDITOR").forEach(role ->
-                jdbc.sql("INSERT INTO roles(code,name,status) VALUES (:code,:name,'ACTIVE')")
+        List.of("EMPLOYEE", "MANAGER", "SALES", "HR", "SYSTEM_ADMIN", "AUDITOR", "EXECUTIVE").forEach(role ->
+                jdbc.sql("INSERT INTO roles(code,name,status) SELECT :code,:name,'ACTIVE' "
+                                + "WHERE NOT EXISTS (SELECT 1 FROM roles WHERE code=:code)")
                         .param("code", role).param("name", role).update());
 
         long adminAccount = account(adminEmployeeId, "admin@query.local", now);
@@ -141,7 +142,8 @@ public class LocalDataInitializer implements ApplicationRunner {
                 VALUES (:publicId,'2026-H2-local',:effectiveFrom,'PUBLISHED',
                   CAST(:boundaries AS JSONB),:now,0)
                 """).param("publicId", publicId).param("effectiveFrom", LocalDate.of(2026, 7, 1))
-                .param("boundaries", "{\"provisional\":true}").param("now", now).update();
+                .param("boundaries", "{\"S\":4.50,\"A\":4.00,\"B\":3.00,\"C\":0.00}")
+                .param("now", now).update();
         long id = jdbc.sql("SELECT id FROM evaluation_criteria_versions WHERE public_id=:publicId")
                 .param("publicId", publicId).query(Long.class).single();
         axes().forEach(axis -> jdbc.sql("""
