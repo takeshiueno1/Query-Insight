@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.query.insight.common.ApiException;
 import com.query.insight.talent.TalentSubmission.Type;
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,17 +23,15 @@ class TalentSubmissionServiceIntegrationTests {
     @Test
     void employeeCreatesSavesAndSubmitsOwnSkillWithOneNotificationAndAudit() {
         Actor employee = actor("QITEST");
-        var draft = service.create(employee.employeePublicId(), Type.SKILL,
-                new TalentPayloads.SkillPayload(skillPublicId(), 3, BigDecimal.ONE,
-                        LocalDate.of(2026, 8, 1), "担当実績"), employee.accountPublicId(), traceId(1));
+        var draft = service.create(employee.employeePublicId(), Type.CAREER,
+                career("サービス正常系", "担当実績"), employee.accountPublicId(), traceId(1));
         var saved = service.update(employee.employeePublicId(), draft.publicId(), 0,
-                new TalentPayloads.SkillPayload(skillPublicId(), 4, new BigDecimal("2.5"),
-                        LocalDate.of(2026, 8, 2), "更新実績"), employee.accountPublicId(), traceId(2));
+                career("サービス正常系", "更新実績"), employee.accountPublicId(), traceId(2));
         var submitted = service.submit(employee.employeePublicId(), employee.accountPublicId(),
                 draft.publicId(), saved.version(), traceId(3));
 
         assertThat(submitted.status()).isEqualTo(TalentSubmission.Status.SUBMITTED);
-        assertThat(service.mine(employee.employeePublicId(), Type.SKILL))
+        assertThat(service.mine(employee.employeePublicId(), Type.CAREER))
                 .anySatisfy(row -> assertThat(row.publicId()).isEqualTo(draft.publicId()));
         assertThat(jdbc.sql("SELECT COUNT(*) FROM talent_submission_events WHERE submission_id=:id")
                 .param("id", draft.id()).query(Integer.class).single()).isEqualTo(3);
@@ -49,17 +46,17 @@ class TalentSubmissionServiceIntegrationTests {
     @Test
     void anotherEmployeeAndStaleVersionCannotEdit() {
         Actor employee = actor("QITEST");
-        var draft = service.create(employee.employeePublicId(), Type.KNOWLEDGE,
-                new TalentPayloads.KnowledgePayload(knowledgePublicId(), 3, "担当実績"),
+        var draft = service.create(employee.employeePublicId(), Type.CAREER,
+                career("所有者検証", "担当実績"),
                 employee.accountPublicId(), traceId(4));
 
         assertThatThrownBy(() -> service.update(actor("QI0003").employeePublicId(), draft.publicId(), 0,
-                new TalentPayloads.KnowledgePayload(knowledgePublicId(), 4, "不正更新"),
+                career("所有者検証", "不正更新"),
                 actor("QI0003").accountPublicId(), traceId(5)))
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.status().value()).isEqualTo(404));
         service.update(employee.employeePublicId(), draft.publicId(), 0,
-                new TalentPayloads.KnowledgePayload(knowledgePublicId(), 4, "正規更新"),
+                career("所有者検証", "正規更新"),
                 employee.accountPublicId(), traceId(6));
         assertThatThrownBy(() -> service.submit(employee.employeePublicId(), employee.accountPublicId(),
                 draft.publicId(), 0, traceId(7)))
@@ -70,19 +67,19 @@ class TalentSubmissionServiceIntegrationTests {
     @Test
     void resubmissionAfterReturnUsesSameLogicalIdAndNextRevision() {
         Actor employee = actor("QITEST");
-        var draft = service.create(employee.employeePublicId(), Type.KNOWLEDGE,
-                new TalentPayloads.KnowledgePayload(knowledgePublicId(), 2, "初版"),
+        var draft = service.create(employee.employeePublicId(), Type.CAREER,
+                career("再提出検証", "初版"),
                 employee.accountPublicId(), traceId(8));
         jdbc.sql("UPDATE talent_submissions SET status='RETURNED',return_reason='根拠を追記してください' WHERE id=:id")
                 .param("id", draft.id()).update();
 
         var revised = service.update(employee.employeePublicId(), draft.publicId(), 0,
-                new TalentPayloads.KnowledgePayload(knowledgePublicId(), 3, "根拠を追記"),
+                career("再提出検証", "根拠を追記"),
                 employee.accountPublicId(), traceId(9));
 
         assertThat(revised.publicId()).isNotEqualTo(draft.publicId());
         assertThat(revised.logicalPublicId()).isEqualTo(draft.logicalPublicId());
-        assertThat(revised.revisionNo()).isEqualTo(2);
+        assertThat(revised.revisionNo()).isEqualTo(draft.revisionNo() + 1);
         assertThat(revised.status()).isEqualTo(TalentSubmission.Status.DRAFT);
         assertThat(jdbc.sql("SELECT status FROM talent_submissions WHERE id=:id")
                 .param("id", draft.id()).query(String.class).single()).isEqualTo("RETURNED");
@@ -93,15 +90,13 @@ class TalentSubmissionServiceIntegrationTests {
     @Test
     void submittedVersionCannotBeEditedAndStaleSubmitDoesNotDuplicateNotification() {
         Actor employee = actor("QITEST");
-        var draft = service.create(employee.employeePublicId(), Type.SKILL,
-                new TalentPayloads.SkillPayload(skillPublicId(), 3, BigDecimal.ONE,
-                        LocalDate.of(2026, 8, 1), "担当実績"), employee.accountPublicId(), traceId(10));
+        var draft = service.create(employee.employeePublicId(), Type.CAREER,
+                career("状態競合検証", "担当実績"), employee.accountPublicId(), traceId(10));
         var submitted = service.submit(employee.employeePublicId(), employee.accountPublicId(),
                 draft.publicId(), 0, traceId(11));
 
         assertThatThrownBy(() -> service.update(employee.employeePublicId(), draft.publicId(), submitted.version(),
-                new TalentPayloads.SkillPayload(skillPublicId(), 4, BigDecimal.TEN,
-                        LocalDate.of(2026, 8, 1), "変更"), employee.accountPublicId(), traceId(12)))
+                career("状態競合検証", "変更"), employee.accountPublicId(), traceId(12)))
                 .isInstanceOfSatisfying(ApiException.class,
                         exception -> assertThat(exception.code()).isEqualTo("TALENT_STATE_CONFLICT"));
         assertThatThrownBy(() -> service.submit(employee.employeePublicId(), employee.accountPublicId(),
@@ -122,14 +117,9 @@ class TalentSubmissionServiceIntegrationTests {
                         rs.getString("account_public_id").trim())).single();
     }
 
-    private String skillPublicId() {
-        return jdbc.sql("SELECT public_id FROM skill_masters WHERE status='ACTIVE' ORDER BY id LIMIT 1")
-                .query(String.class).single();
-    }
-
-    private String knowledgePublicId() {
-        return jdbc.sql("SELECT public_id FROM knowledge_masters WHERE status='ACTIVE' ORDER BY id LIMIT 1")
-                .query(String.class).single();
+    private TalentPayloads.CareerPayload career(String projectName, String achievements) {
+        return new TalentPayloads.CareerPayload(projectName, "IT", "担当", LocalDate.of(2026, 8, 1),
+                null, "概要", achievements, "Java");
     }
 
     private String traceId(int value) {

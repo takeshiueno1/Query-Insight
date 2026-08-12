@@ -46,6 +46,35 @@ public class TalentSubmissionRepository {
         return findByPublicId(publicId).orElseThrow();
     }
 
+    public Row createDraftForOfficial(long employeeId, Type type, String logicalPublicId,
+            long baseRecordVersion, Payload payload, Instant now) {
+        Optional<RevisionHead> latest = jdbc.sql("""
+                SELECT id,revision_no,status,version FROM talent_submissions
+                WHERE employee_id=:employeeId AND talent_type=:type AND logical_public_id=:logicalPublicId
+                ORDER BY revision_no DESC LIMIT 1 FOR UPDATE
+                """).param("employeeId", employeeId).param("type", type.name())
+                .param("logicalPublicId", logicalPublicId)
+                .query((rs, row) -> new RevisionHead(rs.getLong("id"), rs.getInt("revision_no"),
+                        Status.valueOf(rs.getString("status")), rs.getLong("version"))).optional();
+        if (latest.isPresent() && latest.get().status() != Status.APPROVED
+                && latest.get().status() != Status.SUPERSEDED) {
+            throw new ApiException(HttpStatus.CONFLICT, "TALENT_ACTIVE_REVISION_EXISTS",
+                    "このタレント情報には処理中の申請があります");
+        }
+        String publicId = PublicIdGenerator.next();
+        int revisionNo = latest.map(head -> head.revisionNo() + 1).orElse(1);
+        jdbc.sql("""
+                INSERT INTO talent_submissions(public_id,employee_id,talent_type,logical_public_id,revision_no,
+                  status,payload_json,base_record_version,version,created_at,updated_at)
+                VALUES (:publicId,:employeeId,:type,:logicalPublicId,:revisionNo,'DRAFT',:payload,
+                  :baseRecordVersion,0,:now,:now)
+                """).param("publicId", publicId).param("employeeId", employeeId).param("type", type.name())
+                .param("logicalPublicId", logicalPublicId).param("revisionNo", revisionNo)
+                .param("payload", jsonParameter(payload)).param("baseRecordVersion", baseRecordVersion)
+                .param("now", Timestamp.from(now)).update();
+        return findByPublicId(publicId).orElseThrow();
+    }
+
     public Row updateDraft(long id, Status expectedStatus, Payload payload, long version, Instant now) {
         int updated = jdbc.sql("""
                 UPDATE talent_submissions
@@ -138,6 +167,70 @@ public class TalentSubmissionRepository {
                 .query(this::mapRow).list();
     }
 
+    public Optional<Row> findForManager(String submissionPublicId, String managerEmployeePublicId) {
+        return jdbc.sql(selectSql() + """
+                 JOIN employees e ON e.id=talent_submissions.employee_id
+                 WHERE talent_submissions.public_id=:submissionPublicId
+                   AND e.manager_employee_id=(SELECT id FROM employees WHERE public_id=:managerPublicId)
+                   AND e.employment_status<>'RETIRED'
+                """)
+                .param("submissionPublicId", submissionPublicId)
+                .param("managerPublicId", managerEmployeePublicId)
+                .query(this::mapRow).optional();
+    }
+
+    public List<Row> findForManager(String managerEmployeePublicId, Status status) {
+        return jdbc.sql(selectSql() + """
+                 JOIN employees e ON e.id=talent_submissions.employee_id
+                 WHERE e.manager_employee_id=(SELECT id FROM employees WHERE public_id=:managerPublicId)
+                   AND e.employment_status<>'RETIRED' AND talent_submissions.status=:status
+                 ORDER BY talent_submissions.submitted_at,talent_submissions.id
+                """)
+                .param("managerPublicId", managerEmployeePublicId).param("status", status.name())
+                .query(this::mapRow).list();
+    }
+
+    public List<Row> approvedPredecessors(Row target) {
+        return jdbc.sql(selectSql() + """
+                 WHERE employee_id=:employeeId AND talent_type=:type AND logical_public_id=:logicalPublicId
+                   AND status='APPROVED' AND id<>:id ORDER BY revision_no
+                """)
+                .param("employeeId", target.employeeId()).param("type", target.type().name())
+                .param("logicalPublicId", target.logicalPublicId()).param("id", target.id())
+                .query(this::mapRow).list();
+    }
+
+    public Row markReturned(long id, long version, long reviewerAccountId, String reason, Instant now) {
+        int updated = jdbc.sql("""
+                UPDATE talent_submissions SET status='RETURNED',return_reason=:reason,decided_at=:now,
+                  reviewer_account_id=:reviewer,version=version+1,updated_at=:now
+                WHERE id=:id AND status='SUBMITTED' AND version=:version
+                """).param("reason", reason).param("now", Timestamp.from(now))
+                .param("reviewer", reviewerAccountId).param("id", id).param("version", version).update();
+        requireUpdated(updated);
+        return findById(id);
+    }
+
+    public Row markApproved(long id, long version, long reviewerAccountId, Instant now) {
+        int updated = jdbc.sql("""
+                UPDATE talent_submissions SET status='APPROVED',decided_at=:now,
+                  reviewer_account_id=:reviewer,version=version+1,updated_at=:now
+                WHERE id=:id AND status='SUBMITTED' AND version=:version
+                """).param("now", Timestamp.from(now)).param("reviewer", reviewerAccountId)
+                .param("id", id).param("version", version).update();
+        requireUpdated(updated);
+        return findById(id);
+    }
+
+    public Row markSuperseded(long id, Instant now) {
+        int updated = jdbc.sql("""
+                UPDATE talent_submissions SET status='SUPERSEDED',version=version+1,updated_at=:now
+                WHERE id=:id AND status='APPROVED'
+                """).param("now", Timestamp.from(now)).param("id", id).update();
+        requireUpdated(updated);
+        return findById(id);
+    }
+
     private Row findById(long id) {
         return jdbc.sql(selectSql() + " WHERE id=:id")
                 .param("id", id)
@@ -147,9 +240,14 @@ public class TalentSubmissionRepository {
 
     private String selectSql() {
         return """
-                SELECT id,public_id,employee_id,talent_type,logical_public_id,revision_no,status,
-                  CAST(payload_json AS VARCHAR) payload_json,base_record_version,version,submitted_at,
-                  decided_at,reviewer_account_id,return_reason,created_at,updated_at
+                SELECT talent_submissions.id,talent_submissions.public_id,talent_submissions.employee_id,
+                  talent_submissions.talent_type,talent_submissions.logical_public_id,
+                  talent_submissions.revision_no,talent_submissions.status,
+                  CAST(talent_submissions.payload_json AS VARCHAR) payload_json,
+                  talent_submissions.base_record_version,talent_submissions.version,
+                  talent_submissions.submitted_at,talent_submissions.decided_at,
+                  talent_submissions.reviewer_account_id,talent_submissions.return_reason,
+                  talent_submissions.created_at,talent_submissions.updated_at
                 FROM talent_submissions
                 """;
     }

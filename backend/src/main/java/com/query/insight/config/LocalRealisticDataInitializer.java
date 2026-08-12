@@ -431,6 +431,57 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
         }
         ensureCareers(employeeId, seed, now);
         ensureCertification(employeeId, seed, now);
+        ensureTalentSubmissionSnapshots(employeeId);
+    }
+
+    private void ensureTalentSubmissionSnapshots(long employeeId) {
+        jdbc.sql("""
+                INSERT INTO talent_submissions(public_id,employee_id,talent_type,logical_public_id,revision_no,
+                  status,payload_json,base_record_version,version,decided_at,created_at,updated_at)
+                SELECT es.public_id,es.employee_id,'SKILL',es.public_id,1,'APPROVED',
+                  JSON_OBJECT('masterPublicId' VALUE sm.public_id,'level' VALUE es.proficiency_level,
+                    'yearsExperience' VALUE es.years_experience,'lastUsedOn' VALUE es.last_used_on,
+                    'evidence' VALUE es.evidence),es.version,0,es.updated_at,es.created_at,es.updated_at
+                FROM employee_skills es JOIN skill_masters sm ON sm.id=es.skill_id
+                WHERE es.employee_id=:employeeId AND NOT EXISTS (
+                  SELECT 1 FROM talent_submissions ts WHERE ts.employee_id=es.employee_id
+                    AND ts.talent_type='SKILL' AND ts.logical_public_id=es.public_id AND ts.revision_no=1)
+                """).param("employeeId", employeeId).update();
+        jdbc.sql("""
+                INSERT INTO talent_submissions(public_id,employee_id,talent_type,logical_public_id,revision_no,
+                  status,payload_json,base_record_version,version,decided_at,created_at,updated_at)
+                SELECT ek.public_id,ek.employee_id,'KNOWLEDGE',ek.public_id,1,'APPROVED',
+                  JSON_OBJECT('masterPublicId' VALUE km.public_id,'level' VALUE ek.proficiency_level,
+                    'evidence' VALUE ek.evidence),ek.version,0,ek.updated_at,ek.created_at,ek.updated_at
+                FROM employee_knowledge ek JOIN knowledge_masters km ON km.id=ek.knowledge_id
+                WHERE ek.employee_id=:employeeId AND NOT EXISTS (
+                  SELECT 1 FROM talent_submissions ts WHERE ts.employee_id=ek.employee_id
+                    AND ts.talent_type='KNOWLEDGE' AND ts.logical_public_id=ek.public_id AND ts.revision_no=1)
+                """).param("employeeId", employeeId).update();
+        jdbc.sql("""
+                INSERT INTO talent_submissions(public_id,employee_id,talent_type,logical_public_id,revision_no,
+                  status,payload_json,base_record_version,version,decided_at,created_at,updated_at)
+                SELECT ch.public_id,ch.employee_id,'CAREER',ch.public_id,1,'APPROVED',
+                  JSON_OBJECT('projectName' VALUE ch.project_name,'industry' VALUE ch.industry,
+                    'roleName' VALUE ch.role_name,'startDate' VALUE ch.start_date,'endDate' VALUE ch.end_date,
+                    'summary' VALUE ch.summary,'achievements' VALUE ch.achievements,
+                    'technologies' VALUE ch.technologies),ch.version,0,ch.updated_at,ch.created_at,ch.updated_at
+                FROM career_histories ch WHERE ch.employee_id=:employeeId AND NOT EXISTS (
+                  SELECT 1 FROM talent_submissions ts WHERE ts.employee_id=ch.employee_id
+                    AND ts.talent_type='CAREER' AND ts.logical_public_id=ch.public_id AND ts.revision_no=1)
+                """).param("employeeId", employeeId).update();
+        jdbc.sql("""
+                INSERT INTO talent_submissions(public_id,employee_id,talent_type,logical_public_id,revision_no,
+                  status,payload_json,base_record_version,version,decided_at,created_at,updated_at)
+                SELECT ec.public_id,ec.employee_id,'CERTIFICATION',ec.public_id,1,'APPROVED',
+                  JSON_OBJECT('masterPublicId' VALUE cm.public_id,'acquiredOn' VALUE ec.acquired_on,
+                    'expiresOn' VALUE ec.expires_on,'credentialReference' VALUE ec.credential_reference),
+                  ec.version,0,ec.updated_at,ec.created_at,ec.updated_at
+                FROM employee_certifications ec JOIN certification_masters cm ON cm.id=ec.certification_id
+                WHERE ec.employee_id=:employeeId AND NOT EXISTS (
+                  SELECT 1 FROM talent_submissions ts WHERE ts.employee_id=ec.employee_id
+                    AND ts.talent_type='CERTIFICATION' AND ts.logical_public_id=ec.public_id AND ts.revision_no=1)
+                """).param("employeeId", employeeId).update();
     }
 
     private void ensureEmployeeSkill(long employeeId, EmployeeSeed seed, String code, int level, int index,

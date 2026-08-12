@@ -72,15 +72,14 @@ class TalentSubmissionControllerIntegrationTests {
 
     @Test
     void rejectsMissingVersionAndHidesAnotherEmployeesSubmission() throws Exception {
-        String masterPublicId = jdbc.sql("SELECT public_id FROM skill_masters ORDER BY id LIMIT 1")
-                .query(String.class).single();
-        String created = mvc.perform(post("/api/v1/talent-submissions/SKILL")
+        String created = mvc.perform(post("/api/v1/talent-submissions/CAREER")
                         .with(employeeJwt("QITEST", "EMPLOYEE"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"payload":{"masterPublicId":"%s","level":3,"yearsExperience":1,
-                                "lastUsedOn":"2026-08-01","evidence":"担当実績"}}
-                                """.formatted(masterPublicId)))
+                                {"payload":{"projectName":"API所有者検証","industry":"IT","roleName":"担当",
+                                "startDate":"2026-08-01","endDate":null,"summary":"概要",
+                                "achievements":"成果","technologies":"Java"}}
+                                """))
                 .andReturn().getResponse().getContentAsString();
         String publicId = json.readTree(created).path("publicId").asText();
 
@@ -94,9 +93,10 @@ class TalentSubmissionControllerIntegrationTests {
                         .with(employeeJwt("QI0003", "EMPLOYEE"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"version":0,"payload":{"masterPublicId":"%s","level":3,
-                                "yearsExperience":1,"lastUsedOn":"2026-08-01","evidence":"担当実績"}}
-                                """.formatted(masterPublicId)))
+                                {"version":0,"payload":{"projectName":"API所有者検証","industry":"IT",
+                                "roleName":"担当","startDate":"2026-08-01","endDate":null,
+                                "summary":"概要","achievements":"成果","technologies":"Java"}}
+                                """))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TALENT_SUBMISSION_NOT_FOUND"));
     }
