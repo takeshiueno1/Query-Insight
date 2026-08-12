@@ -76,6 +76,89 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
         ensureApprovalExample("QI0004", "EXECUTIVE_REVIEW", now);
         ensureApprovalExample("QI0005", "FINALIZED", now);
         ensureApprovalExample("QI0007", "MANAGER_RETURNED", now);
+        ensureTalentWorkflowExamples(now);
+    }
+
+    private void ensureTalentWorkflowExamples(LocalDateTime now) {
+        if (count("""
+                SELECT COUNT(*) FROM talent_submissions ts JOIN employees e ON e.id=ts.employee_id
+                WHERE e.employee_no='QITEST' AND CAST(ts.payload_json AS VARCHAR) LIKE '%ローカル確認用下書き%'
+                """, Map.of()) == 0) {
+            String publicId = PublicIdGenerator.next();
+            jdbc.sql("""
+                    INSERT INTO talent_submissions(public_id,employee_id,talent_type,logical_public_id,revision_no,
+                      status,payload_json,version,created_at,updated_at)
+                    SELECT :publicId,e.id,'SKILL',:publicId,1,'DRAFT',
+                      JSON_OBJECT('masterPublicId' VALUE sm.public_id,'level' VALUE 3,
+                        'yearsExperience' VALUE 1.5,'lastUsedOn' VALUE DATE '2026-07-01',
+                        'evidence' VALUE 'ローカル確認用下書き'),0,:now,:now
+                    FROM employees e CROSS JOIN (
+                      SELECT public_id FROM skill_masters WHERE status='ACTIVE' ORDER BY id LIMIT 1
+                    ) sm WHERE e.employee_no='QITEST'
+                    """).param("publicId", publicId).param("now", now).update();
+            ensureTalentEvent(publicId, "QITEST", "CREATE", null, "DRAFT", null, now);
+        }
+
+        if (count("""
+                SELECT COUNT(*) FROM talent_submissions ts JOIN employees e ON e.id=ts.employee_id
+                WHERE e.employee_no='QI0003' AND CAST(ts.payload_json AS VARCHAR) LIKE '%ローカル確認用承認待ち%'
+                """, Map.of()) == 0) {
+            String publicId = PublicIdGenerator.next();
+            jdbc.sql("""
+                    INSERT INTO talent_submissions(public_id,employee_id,talent_type,logical_public_id,revision_no,
+                      status,payload_json,version,submitted_at,created_at,updated_at)
+                    SELECT :publicId,e.id,'CAREER',:publicId,1,'SUBMITTED',
+                      JSON_OBJECT('projectName' VALUE 'ローカル確認用承認待ち','industry' VALUE 'IT',
+                        'roleName' VALUE '担当','startDate' VALUE DATE '2026-04-01','endDate' VALUE NULL,
+                        'summary' VALUE '申請から承認までの動作確認用データ',
+                        'achievements' VALUE 'チーム改善を実施','technologies' VALUE 'Java, React'),1,:now,:now,:now
+                    FROM employees e WHERE e.employee_no='QI0003'
+                    """).param("publicId", publicId).param("now", now).update();
+            ensureTalentEvent(publicId, "QI0003", "CREATE", null, "DRAFT", null, now.minusMinutes(1));
+            ensureTalentEvent(publicId, "QI0003", "SUBMIT", "DRAFT", "SUBMITTED", null, now);
+        }
+
+        if (count("""
+                SELECT COUNT(*) FROM talent_submissions ts JOIN employees e ON e.id=ts.employee_id
+                WHERE e.employee_no='QI0007' AND CAST(ts.payload_json AS VARCHAR) LIKE '%LOCAL-RETURN-SAMPLE%'
+                """, Map.of()) == 0) {
+            String publicId = PublicIdGenerator.next();
+            jdbc.sql("""
+                    INSERT INTO talent_submissions(public_id,employee_id,talent_type,logical_public_id,revision_no,
+                      status,payload_json,version,submitted_at,decided_at,reviewer_account_id,return_reason,
+                      created_at,updated_at)
+                    SELECT :publicId,e.id,'CERTIFICATION',:publicId,1,'RETURNED',
+                      JSON_OBJECT('masterPublicId' VALUE cm.public_id,'acquiredOn' VALUE DATE '2026-01-15',
+                        'expiresOn' VALUE NULL,'credentialReference' VALUE 'LOCAL-RETURN-SAMPLE'),2,
+                      :now,:now,managerAccount.id,'証明書番号を確認できる根拠を追記してください。',:now,:now
+                    FROM employees e
+                    CROSS JOIN (SELECT public_id FROM certification_masters WHERE status='ACTIVE' ORDER BY id LIMIT 1) cm
+                    CROSS JOIN (SELECT a.id FROM accounts a JOIN employees me ON me.id=a.employee_id
+                      WHERE me.employee_no='QI0002') managerAccount
+                    WHERE e.employee_no='QI0007'
+                    """).param("publicId", publicId).param("now", now).update();
+            ensureTalentEvent(publicId, "QI0007", "CREATE", null, "DRAFT", null, now.minusMinutes(2));
+            ensureTalentEvent(publicId, "QI0007", "SUBMIT", "DRAFT", "SUBMITTED", null, now.minusMinutes(1));
+            ensureTalentEvent(publicId, "QI0002", "RETURN", "SUBMITTED", "RETURNED",
+                    "証明書番号を確認できる根拠を追記してください。", now);
+        }
+    }
+
+    private void ensureTalentEvent(String submissionPublicId, String actorEmployeeNo, String action,
+            String fromStatus, String toStatus, String reason, LocalDateTime occurredAt) {
+        jdbc.sql("""
+                INSERT INTO talent_submission_events(public_id,submission_id,actor_account_id,action,
+                  from_status,to_status,reason,occurred_at,trace_id)
+                SELECT :publicId,ts.id,a.id,:action,:fromStatus,:toStatus,:reason,:occurredAt,:traceId
+                FROM talent_submissions ts JOIN accounts a ON a.employee_id=(
+                  SELECT id FROM employees WHERE employee_no=:employeeNo)
+                WHERE ts.public_id=:submissionPublicId AND NOT EXISTS (
+                  SELECT 1 FROM talent_submission_events ev
+                  WHERE ev.submission_id=ts.id AND ev.action=:action)
+                """).param("publicId", PublicIdGenerator.next()).param("action", action)
+                .param("fromStatus", fromStatus).param("toStatus", toStatus).param("reason", reason)
+                .param("occurredAt", occurredAt).param("traceId", PublicIdGenerator.next())
+                .param("employeeNo", actorEmployeeNo).param("submissionPublicId", submissionPublicId).update();
     }
 
     private void ensureApprovalExample(String employeeNo, String targetStatus, LocalDateTime now) {

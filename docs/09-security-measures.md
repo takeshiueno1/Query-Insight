@@ -26,6 +26,9 @@
 | コンテナ侵害 | 最小公開・非root・権限制限 | Backendと無料統合イメージは非root。主要コンテナはread-only、no-new-privileges、不要Capability削除。DBは非公開、Ollamaはloopback限定 |
 | 依存関係・CI改ざん | ロックファイル、監査、Action SHA固定 | `npm ci`、本番依存の`npm audit`、GitHub Actionsをcommit SHAで固定、Dependabotを週次設定 |
 | 操作否認・改ざん調査 | 監査ログと相関ID | 認証・更新・評価・AI操作をtraceId付きで記録し、監査レコードをハッシュ連鎖する |
+| 危険な添付ファイル | 実体検証とClamAV検査 | PDF/JPEG/PNGのmagic bytes、5MB・3件上限を検証し、CLEANになるまで取得不可。感染ファイル本体は消去する |
+| タレント情報の過剰公開 | 用途別の参照認可 | 本人、現在の直属上長、有効なEXECUTIVE/ALLだけを許可し、SYSTEM_ADMIN・AUDITORには他者の内容を公開しない |
+| 未承認情報の利用 | 正式テーブルとの分離 | 申請payloadと正式プロフィールを分離し、プロフィール・検索・AI入力は承認済み正式テーブルだけを参照する |
 
 ## 3. 既定のレート制限
 

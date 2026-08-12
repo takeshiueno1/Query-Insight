@@ -11,6 +11,10 @@
 - `EXECUTIVE`による全社・部門別分布、個人最終承認、上長への差戻し、理由付き再オープン
 - 最終承認後だけ社員へ確定スコア・等級・上長評価を公開
 - 通知一覧、監査ログ一覧
+- スキル・専門知識・業務経歴・資格の種類別フォーム、下書き、根拠添付、直属上長への申請、差戻し、再申請、版管理
+- 直属上長によるタレント申請の1件承認と、承認済み正式プロフィールへの原子的な反映
+- スキル・資格マスタの追加申請と、社長またはシステム管理者による承認・差戻し
+- PDF/JPEG/PNGの実体検証、5MB・3件制限、ClamAV検査、閲覧スコープ制御
 - SCR-001〜SCR-023のルーティングと、設計書に沿ったダークネイビー／イエローのレスポンシブUI
 - PostgreSQL向けFlywayスキーマ、50名分の組織・6能力軸・スキル・知識・業務経歴・資格を含むローカル専用サンプルデータ
 - OllamaとQwen3によるローカル能力分析（API利用料・外部送信なし）
@@ -30,7 +34,7 @@
 
 ## ローカル起動
 
-前提: Docker Desktop と Docker Compose。初回だけOllamaモデル約2.5GBをダウンロードします。
+前提: Docker Desktop と Docker Compose。初回だけOllamaモデル約2.5GBとClamAV定義をダウンロードします。
 
 ```powershell
 Copy-Item .env.example .env
@@ -38,6 +42,8 @@ docker compose up -d db ollama
 docker compose exec ollama ollama pull qwen3:4b
 docker compose up --build backend frontend
 ```
+
+`backend`起動時に依存する`clamav`も自動起動します。定義更新後にhealthcheckが成功するまで、初回は数分かかる場合があります。
 
 ブラウザで <http://localhost:8088> を開きます。`local` プロファイル専用の確認用アカウントは次のとおりです。
 

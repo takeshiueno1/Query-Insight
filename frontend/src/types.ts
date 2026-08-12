@@ -197,6 +197,7 @@ export type TalentProfile = {
 
 export type TalentSubmissionStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'SUPERSEDED'
 export type TalentSubmissionType = 'SKILL' | 'KNOWLEDGE' | 'CAREER' | 'CERTIFICATION'
+export type TalentMasterChoice = { publicId: string; code: string; name: string }
 export type TalentSubmission = {
   publicId: string; logicalPublicId: string; type: TalentSubmissionType; revisionNo: number
   status: TalentSubmissionStatus; version: number; returnReason: string | null
