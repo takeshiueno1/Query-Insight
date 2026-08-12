@@ -7,6 +7,10 @@ spring:
     password: ${DB_PASSWORD:query_insight_local}
   flyway:
     enabled: true
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 16MB
   jackson:
     time-zone: UTC
 server:
@@ -29,6 +33,17 @@ management:
         enabled: true
       show-details: never
 app:
+  files:
+    max-size-bytes: 5242880
+    max-per-submission: 3
+    scan-scheduler-enabled: ${FILE_SCAN_SCHEDULER_ENABLED:true}
+    scan-retry-fixed-delay: PT1M
+    scan-retry-initial-delay: PT1M
+    clamav:
+      host: ${CLAMAV_HOST:localhost}
+      port: ${CLAMAV_PORT:3310}
+      connect-timeout: PT2S
+      read-timeout: PT30S
   auth:
     issuer: ${JWT_ISSUER:query-insight}
     access-token-ttl: PT15M

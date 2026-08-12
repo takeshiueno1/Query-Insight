@@ -35,6 +35,12 @@ services:
       - ALL
     restart: unless-stopped
 
+  clamav:
+    image: clamav/clamav:1.4.3
+    volumes:
+      - query-insight-clamav:/var/lib/clamav
+    restart: unless-stopped
+
   backend:
     build: ./backend
     environment:
@@ -49,10 +55,13 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b}
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_REQUEST_TIMEOUT: ${OLLAMA_REQUEST_TIMEOUT:-PT5M}
+      CLAMAV_HOST: clamav
     depends_on:
       db:
         condition: service_healthy
       ollama:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health/readiness"]
@@ -87,3 +96,4 @@ services:
 volumes:
   query-insight-postgres:
   query-insight-ollama:
+  query-insight-clamav:

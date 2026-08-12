@@ -14,6 +14,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -40,6 +41,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     ResponseEntity<ProblemDetail> handleAccessDenied(AccessDeniedException exception, HttpServletRequest request) {
         return response(HttpStatus.FORBIDDEN, "ACCESS_DENIED", "この操作を行う権限がありません", request, List.of());
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<ProblemDetail> handleUploadLimit(MaxUploadSizeExceededException exception,
+            HttpServletRequest request) {
+        return response(HttpStatus.BAD_REQUEST, "ATTACHMENT_TOO_LARGE", "ファイルは5MB以内にしてください",
+                request, List.of());
     }
 
     @ExceptionHandler(Exception.class)

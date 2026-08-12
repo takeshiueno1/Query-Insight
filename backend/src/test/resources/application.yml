@@ -6,6 +6,8 @@ spring:
   flyway:
     enabled: true
 app:
+  files:
+    scan-scheduler-enabled: false
   auth:
     issuer: query-insight-test
     access-token-ttl: PT15M
