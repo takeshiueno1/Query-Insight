@@ -17,6 +17,11 @@ import { FeaturePage } from './pages/FeaturePage'
 import { LoginPage } from './pages/LoginPage'
 import { NotificationsPage } from './pages/NotificationsPage'
 import { TalentProfilePage } from './pages/TalentProfilePage'
+import { TalentSubmissionFormPage } from './pages/TalentSubmissionFormPage'
+import { TalentSubmissionHistoryPage } from './pages/TalentSubmissionHistoryPage'
+import { ManagerTalentApprovalsPage } from './pages/ManagerTalentApprovalsPage'
+import { ManagerTalentApprovalDetailPage } from './pages/ManagerTalentApprovalDetailPage'
+import { MasterRequestsPage } from './pages/MasterRequestsPage'
 
 function ProtectedLayout() {
   const { user, loading } = useAuth()
@@ -36,6 +41,11 @@ export default function App() {
       <Route path="careers/edit" element={<TalentProfilePage />} />
       <Route path="skills/edit" element={<TalentProfilePage />} />
       <Route path="certifications/edit" element={<TalentProfilePage />} />
+      <Route path="talent/new/:type" element={<TalentSubmissionFormPage />} />
+      <Route path="talent/:logicalPublicId/history" element={<TalentSubmissionHistoryPage />} />
+      <Route path="approvals/talent" element={<ManagerTalentApprovalsPage />} />
+      <Route path="approvals/talent/:publicId" element={<ManagerTalentApprovalDetailPage />} />
+      <Route path="master-requests" element={<MasterRequestsPage />} />
       <Route path="evaluations/self" element={<EvaluationPage />} />
       <Route path="evaluations/manager" element={<ManagerEvaluationsPage />} />
       <Route path="evaluations/manager/:publicId" element={<ManagerEvaluationDetailPage />} />
@@ -47,7 +57,7 @@ export default function App() {
       <Route path="audit" element={<AuditPage />} />
       <Route path="password/change" element={<FeaturePage screenId="SCR-016" title="パスワード変更" description="現在のパスワード確認後、15～128文字の新しいパスフレーズへ変更します" sections={['本人確認', 'ブロックリスト検査', '全セッション失効']} />} />
       <Route path="password/reset" element={<FeaturePage screenId="SCR-017" title="パスワード再設定" description="一回限り・30分有効のトークンで再設定します" sections={['本人確認', 'トークン検証', '再設定完了']} />} />
-      <Route path="approvals" element={<FeaturePage screenId="SCR-018" title="承認ワーク一覧" description="経歴・スキル・資格の申請差分と根拠を確認します" sections={['承認待ち', '差分確認', '承認・差し戻し']} />} />
+      <Route path="approvals" element={<Navigate to="/approvals/talent" replace />} />
       <Route path="evaluations/history" element={<FeaturePage screenId="SCR-019" title="評価履歴比較" description="期間ごとの自己・上長・確定評価を混同せず比較します" sections={['期間選択', '6軸比較', '根拠スナップショット']} />} />
       <Route path="organization" element={<FeaturePage screenId="SCR-020" title="組織・所属管理" description="部署階層と所属・上長関係を有効期間付きで管理します" sections={['部署ツリー', '所属履歴', '異動登録']} />} />
       <Route path="accounts" element={<FeaturePage screenId="SCR-021" title="アカウント・権限管理" description="ロール、データスコープ、有効期間、付与理由を管理します" sections={['アカウント', '権限付与', '棚卸し']} />} />

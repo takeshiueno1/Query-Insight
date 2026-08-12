@@ -7,9 +7,11 @@ const nav = [
   { to: '/skills/edit', label: 'スキル', icon: '◇' },
   { to: '/evaluations/self', label: '評価', icon: '✓' },
   { to: '/evaluations/manager', label: '上長評価', icon: '◎', roles: ['MANAGER'] },
+  { to: '/approvals/talent', label: 'タレント承認', icon: '▣', roles: ['MANAGER'] },
   { to: '/executive/evaluations', label: '最終承認', icon: '◆', roles: ['EXECUTIVE'] },
   { to: '/analysis', label: 'AI分析', icon: '✦' },
   { to: '/notifications', label: '通知', icon: '●' },
+  { to: '/master-requests', label: 'マスタ申請', icon: '＋' },
   { to: '/audit', label: '監査', icon: '▤', roles: ['AUDITOR', 'HR', 'SYSTEM_ADMIN'] },
 ]
 
