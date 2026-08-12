@@ -8,6 +8,7 @@ import com.query.insight.talent.TalentSubmission.Type;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -61,6 +62,40 @@ public class TalentSubmissionRepository {
         return findById(id);
     }
 
+    public Row createRevision(Row returned, Payload payload, long version, Instant now) {
+        RevisionHead head = jdbc.sql("""
+                SELECT id,revision_no,status,version FROM talent_submissions
+                WHERE employee_id=:employeeId AND talent_type=:type AND logical_public_id=:logicalPublicId
+                ORDER BY revision_no DESC LIMIT 1 FOR UPDATE
+                """)
+                .param("employeeId", returned.employeeId())
+                .param("type", returned.type().name())
+                .param("logicalPublicId", returned.logicalPublicId())
+                .query((rs, row) -> new RevisionHead(rs.getLong("id"), rs.getInt("revision_no"),
+                        Status.valueOf(rs.getString("status")), rs.getLong("version")))
+                .single();
+        if (head.id() != returned.id() || head.status() != Status.RETURNED || head.version() != version) {
+            throw optimisticConflict();
+        }
+        String publicId = PublicIdGenerator.next();
+        jdbc.sql("""
+                INSERT INTO talent_submissions(public_id,employee_id,talent_type,logical_public_id,revision_no,
+                  status,payload_json,base_record_version,version,created_at,updated_at)
+                VALUES (:publicId,:employeeId,:type,:logicalPublicId,:revisionNo,'DRAFT',:payload,
+                  :baseRecordVersion,0,:now,:now)
+                """)
+                .param("publicId", publicId)
+                .param("employeeId", returned.employeeId())
+                .param("type", returned.type().name())
+                .param("logicalPublicId", returned.logicalPublicId())
+                .param("revisionNo", head.revisionNo() + 1)
+                .param("payload", jsonParameter(payload))
+                .param("baseRecordVersion", returned.baseRecordVersion())
+                .param("now", Timestamp.from(now))
+                .update();
+        return findByPublicId(publicId).orElseThrow();
+    }
+
     public Row markSubmitted(long id, Status expectedStatus, long version, Instant now) {
         int updated = jdbc.sql("""
                 UPDATE talent_submissions
@@ -81,6 +116,26 @@ public class TalentSubmissionRepository {
                 .param("publicId", publicId)
                 .query(this::mapRow)
                 .optional();
+    }
+
+    public Payload payload(Row row) {
+        try {
+            return switch (row.type()) {
+                case SKILL -> objectMapper.treeToValue(row.payload(), TalentPayloads.SkillPayload.class);
+                case KNOWLEDGE -> objectMapper.treeToValue(row.payload(), TalentPayloads.KnowledgePayload.class);
+                case CAREER -> objectMapper.treeToValue(row.payload(), TalentPayloads.CareerPayload.class);
+                case CERTIFICATION -> objectMapper.treeToValue(row.payload(), TalentPayloads.CertificationPayload.class);
+            };
+        } catch (JacksonException exception) {
+            throw new IllegalStateException("Stored talent payload is invalid", exception);
+        }
+    }
+
+    public List<Row> findByEmployee(long employeeId, Type type) {
+        return jdbc.sql(selectSql() + " WHERE employee_id=:employeeId AND talent_type=:type "
+                        + "ORDER BY updated_at DESC,id DESC")
+                .param("employeeId", employeeId).param("type", type.name())
+                .query(this::mapRow).list();
     }
 
     private Row findById(long id) {
@@ -146,9 +201,16 @@ public class TalentSubmissionRepository {
 
     private void requireUpdated(int updated) {
         if (updated != 1) {
-            throw new ApiException(HttpStatus.CONFLICT, "OPTIMISTIC_LOCK_CONFLICT",
-                    "他の利用者が更新しました。再読み込みしてください");
+            throw optimisticConflict();
         }
+    }
+
+    private ApiException optimisticConflict() {
+        return new ApiException(HttpStatus.CONFLICT, "OPTIMISTIC_LOCK_CONFLICT",
+                "他の利用者が更新しました。再読み込みしてください");
+    }
+
+    private record RevisionHead(long id, int revisionNo, Status status, long version) {
     }
 
     public record Row(long id, String publicId, long employeeId, Type type, String logicalPublicId,
