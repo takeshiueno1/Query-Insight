@@ -62,6 +62,11 @@ public class TalentSubmissionController {
                 request.version(), traceId(servletRequest)));
     }
 
+    @GetMapping("/me/{logicalPublicId:[0-7][0-9A-HJKMNP-TV-Z]{25}}/history")
+    List<Response> history(@AuthenticationPrincipal Jwt jwt, @PathVariable String logicalPublicId) {
+        return service.history(employee(jwt), logicalPublicId).stream().map(Response::from).toList();
+    }
+
     private Payload payload(Type type, JsonNode node) {
         if (node == null || node.isNull()) {
             throw invalidPayload();

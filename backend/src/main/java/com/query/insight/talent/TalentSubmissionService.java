@@ -42,6 +42,10 @@ public class TalentSubmissionService {
         return ownSubmission(employeePublicId, submissionPublicId);
     }
 
+    public List<TalentSubmissionRepository.Row> history(String employeePublicId, String logicalPublicId) {
+        return repository.history(employeeId(employeePublicId), logicalPublicId);
+    }
+
     public List<ManagerListItem> managerList(String managerEmployeePublicId, Status status) {
         return jdbc.sql("""
                 SELECT s.public_id,s.talent_type,s.status,s.version,s.submitted_at,

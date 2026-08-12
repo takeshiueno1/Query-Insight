@@ -1,25 +1,28 @@
 package com.query.insight.talent;
 
-import com.query.insight.employee.EmployeeService;
+import com.query.insight.common.ApiException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 @Service
 public class TalentProfileService {
     private final JdbcClient jdbc;
-    private final EmployeeService employees;
-
-    public TalentProfileService(JdbcClient jdbc, EmployeeService employees) {
+    public TalentProfileService(JdbcClient jdbc) {
         this.jdbc = jdbc;
-        this.employees = employees;
     }
 
     public TalentProfile findAccessible(String targetPublicId, String actorPublicId, Set<String> roles) {
-        employees.findAccessible(targetPublicId, actorPublicId, roles);
+        return findAccessible(targetPublicId, actorPublicId, null, roles);
+    }
+
+    public TalentProfile findAccessible(String targetPublicId, String actorPublicId,
+            String actorAccountPublicId, Set<String> roles) {
+        requireAccessible(targetPublicId, actorPublicId, actorAccountPublicId, roles);
         long employeeId = jdbc.sql("SELECT id FROM employees WHERE public_id=:publicId")
                 .param("publicId", targetPublicId).query(Long.class).single();
         List<Skill> skills = jdbc.sql("""
@@ -56,6 +59,26 @@ public class TalentProfileService {
                         rs.getString("issuer"), rs.getObject("acquired_on", LocalDate.class),
                         rs.getObject("expires_on", LocalDate.class), rs.getString("verification_status"))).list();
         return new TalentProfile(skills, knowledge, careers, certifications);
+    }
+
+    private void requireAccessible(String targetPublicId, String actorPublicId,
+            String actorAccountPublicId, Set<String> roles) {
+        boolean self = targetPublicId.equals(actorPublicId);
+        boolean manager = roles.contains("MANAGER") && jdbc.sql("""
+                SELECT COUNT(*) FROM employees e JOIN employees m ON m.id=e.manager_employee_id
+                WHERE e.public_id=:target AND m.public_id=:actor AND e.employment_status<>'RETIRED'
+                """).param("target", targetPublicId).param("actor", actorPublicId)
+                .query(Integer.class).single() > 0;
+        boolean executive = actorAccountPublicId != null && roles.contains("EXECUTIVE") && jdbc.sql("""
+                SELECT COUNT(*) FROM accounts a JOIN permission_grants g ON g.account_id=a.id
+                JOIN roles r ON r.id=g.role_id AND r.code='EXECUTIVE' AND r.status='ACTIVE'
+                WHERE a.public_id=:account AND a.status='ACTIVE' AND g.scope_type='ALL'
+                  AND g.revoked_at IS NULL AND g.valid_from<=CURRENT_TIMESTAMP
+                  AND (g.valid_to IS NULL OR g.valid_to>CURRENT_TIMESTAMP)
+                """).param("account", actorAccountPublicId).query(Integer.class).single() > 0;
+        if (!self && !manager && !executive) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "EMPLOYEE_NOT_FOUND", "対象の社員が見つかりません");
+        }
     }
 
     public record TalentProfile(List<Skill> skills, List<Knowledge> knowledge, List<Career> careers,

@@ -200,6 +200,14 @@ public class TalentSubmissionRepository {
                 .query(this::mapRow).list();
     }
 
+    public List<Row> history(long employeeId, String logicalPublicId) {
+        return jdbc.sql(selectSql() + """
+                 WHERE employee_id=:employeeId AND logical_public_id=:logicalPublicId
+                 ORDER BY revision_no DESC
+                """).param("employeeId", employeeId).param("logicalPublicId", logicalPublicId)
+                .query(this::mapRow).list();
+    }
+
     public Row markReturned(long id, long version, long reviewerAccountId, String reason, Instant now) {
         int updated = jdbc.sql("""
                 UPDATE talent_submissions SET status='RETURNED',return_reason=:reason,decided_at=:now,

@@ -22,6 +22,6 @@ public class TalentProfileController {
     TalentProfileService.TalentProfile find(@AuthenticationPrincipal Jwt jwt,
             @PathVariable @Pattern(regexp = "[0-9A-HJKMNP-TV-Z]{26}") String publicId) {
         return service.findAccessible(publicId, jwt.getClaimAsString("employeePublicId"),
-                Set.copyOf(jwt.getClaimAsStringList("roles")));
+                jwt.getClaimAsString("accountPublicId"), Set.copyOf(jwt.getClaimAsStringList("roles")));
     }
 }
