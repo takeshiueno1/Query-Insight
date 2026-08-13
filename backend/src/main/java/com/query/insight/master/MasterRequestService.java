@@ -49,10 +49,11 @@ public class MasterRequestService {
         Instant now = Instant.now();
         jdbc.sql("""
                 INSERT INTO master_addition_requests(public_id,requested_by_account_id,master_type,
-                  proposed_payload_json,status,version,requested_at,created_master_public_id)
-                VALUES (:publicId,:accountId,:type,:payload,'SUBMITTED',0,:now,NULL)
+                  proposed_payload_json,request_type,request_description,status,version,requested_at,created_master_public_id)
+                VALUES (:publicId,:accountId,:type,:payload,:requestType,:requestDescription,'SUBMITTED',0,:now,NULL)
                 """).param("publicId", publicId).param("accountId", accountId).param("type", type.name())
-                .param("payload", jsonParameter(normalized)).param("now", Timestamp.from(now)).update();
+                .param("payload", jsonParameter(normalized)).param("requestType", type.name())
+                .param("requestDescription", jsonText(normalized)).param("now", Timestamp.from(now)).update();
         audit.record(accountId, "MASTER_REQUEST_SUBMIT", "MASTER_REQUEST", publicId,
                 "SUCCESS", "SELF", traceId);
         return find(publicId);
@@ -235,8 +236,12 @@ public class MasterRequestService {
     }
 
     private SqlParameterValue jsonParameter(JsonNode payload) {
+        return new SqlParameterValue(Types.OTHER, jsonText(payload));
+    }
+
+    private String jsonText(JsonNode payload) {
         try {
-            return new SqlParameterValue(Types.OTHER, objectMapper.writeValueAsString(payload));
+            return objectMapper.writeValueAsString(payload);
         } catch (JacksonException exception) {
             throw new IllegalStateException("Master request payload could not be serialized", exception);
         }

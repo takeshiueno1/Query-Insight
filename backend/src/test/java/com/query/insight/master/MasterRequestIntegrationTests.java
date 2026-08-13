@@ -5,10 +5,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.query.insight.common.ApiException;
 import java.util.Set;
+import javax.sql.DataSource;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.test.context.ActiveProfiles;
 import tools.jackson.databind.ObjectMapper;
 
@@ -30,6 +34,13 @@ class MasterRequestIntegrationTests {
                         {"code":"NEW_CLOUD_ARCH","name":"クラウド設計検証","category":"技術",
                         "description":"検証用の追加スキル"}
                         """), traceId(1));
+
+        assertThat(jdbc.sql("""
+                SELECT request_type FROM master_addition_requests WHERE public_id=:publicId
+                """).param("publicId", request.publicId()).query(String.class).single()).isEqualTo("SKILL");
+        assertThat(jdbc.sql("""
+                SELECT request_description FROM master_addition_requests WHERE public_id=:publicId
+                """).param("publicId", request.publicId()).query(String.class).single()).contains("NEW_CLOUD_ARCH");
 
         var approved = service.approve(administrator.accountPublicId(), Set.of("ADMIN"),
                 request.publicId(), request.version(), traceId(2));
@@ -91,6 +102,61 @@ class MasterRequestIntegrationTests {
                         error -> assertThat(error.status().value()).isEqualTo(409));
         assertThat(jdbc.sql("SELECT COUNT(*) FROM skill_masters WHERE code='UNIQUE_TEST_CODE'")
                 .query(Integer.class).single()).isZero();
+    }
+
+    @Test
+    void v7BackfillsLegacyMasterRequestFieldsWithoutDeletingTheRequest() {
+        DataSource dataSource = new SingleConnectionDataSource(
+                "jdbc:h2:mem:legacy_master_request;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;"
+                        + "DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1",
+                "sa", "", true);
+        Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("5")).load().migrate();
+        JdbcClient legacyJdbc = JdbcClient.create(dataSource);
+        insertLegacyMasterRequest(legacyJdbc);
+
+        Flyway flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
+        flyway.migrate();
+
+        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("7"));
+        assertThat(legacyJdbc.sql("""
+                SELECT request_type FROM master_addition_requests
+                WHERE public_id='08M00000000000000000000001'
+                """).query(String.class).single()).isEqualTo("SKILL");
+        assertThat(legacyJdbc.sql("""
+                SELECT request_description FROM master_addition_requests
+                WHERE public_id='08M00000000000000000000001'
+                """).query(String.class).single()).contains("LEGACY_SKILL");
+        assertThat(legacyJdbc.sql("""
+                SELECT COUNT(*) FROM master_addition_requests
+                WHERE public_id='08M00000000000000000000001'
+                  AND master_type='SKILL' AND CAST(proposed_payload_json AS VARCHAR) LIKE '%LEGACY_SKILL%'
+                """).query(Integer.class).single()).isEqualTo(1);
+    }
+
+    private void insertLegacyMasterRequest(JdbcClient legacyJdbc) {
+        legacyJdbc.sql("""
+                INSERT INTO departments(public_id,code,name,status,version,created_at,updated_at)
+                VALUES ('01M00000000000000000000001','LEGACY','旧データ部','ACTIVE',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                """).update();
+        legacyJdbc.sql("""
+                INSERT INTO employees(public_id,employee_no,last_name,first_name,email,department_id,
+                  employment_status,version,created_at,updated_at)
+                VALUES ('01M00000000000000000000002','QI-LEGACY','旧','申請','legacy@example.invalid',
+                  (SELECT id FROM departments WHERE code='LEGACY'),'ACTIVE',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                """).update();
+        legacyJdbc.sql("""
+                INSERT INTO accounts(public_id,employee_id,login_id_normalized,password_hash,status,
+                  failed_count,password_changed_at,version)
+                VALUES ('02M00000000000000000000001',(SELECT id FROM employees WHERE employee_no='QI-LEGACY'),
+                  'legacy','unused','ACTIVE',0,CURRENT_TIMESTAMP,0)
+                """).update();
+        legacyJdbc.sql("""
+                INSERT INTO master_addition_requests(public_id,requested_by_account_id,master_type,
+                  proposed_payload_json,status,version,requested_at)
+                VALUES ('08M00000000000000000000001',(SELECT id FROM accounts WHERE login_id_normalized='legacy'),
+                  'SKILL',CAST('{"code":"LEGACY_SKILL"}' AS JSONB),'SUBMITTED',0,CURRENT_TIMESTAMP)
+                """).update();
     }
 
     private Actor actor(String employeeNo) {

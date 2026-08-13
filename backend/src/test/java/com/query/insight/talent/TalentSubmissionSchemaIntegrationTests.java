@@ -33,7 +33,7 @@ class TalentSubmissionSchemaIntegrationTests {
                 .load();
         flyway.migrate();
 
-        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("6"));
+        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("7"));
         assertThat(count(jdbc, "talent_submissions")).isEqualTo(4);
         assertThat(count(jdbc, "talent_submission_events")).isZero();
         assertThat(count(jdbc, "talent_attachments")).isZero();

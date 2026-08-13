@@ -34,7 +34,7 @@ class SimplifiedRoleMigrationIntegrationTests {
                 .load();
         flyway.migrate();
 
-        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("6"));
+        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("7"));
         assertThat(jdbc.sql("SELECT code FROM roles WHERE status='ACTIVE' ORDER BY code")
                 .query(String.class).list()).containsExactly("ADMIN", "GENERAL", "OFFICER");
         assertThat(jdbc.sql("""
