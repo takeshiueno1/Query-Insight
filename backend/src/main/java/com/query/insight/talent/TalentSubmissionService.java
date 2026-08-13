@@ -4,6 +4,7 @@ import com.query.insight.audit.AuditService;
 import com.query.insight.common.ApiException;
 import com.query.insight.common.PublicIdGenerator;
 import com.query.insight.notification.NotificationService;
+import com.query.insight.status.ProfileStatusService;
 import com.query.insight.talent.TalentPayloads.Payload;
 import com.query.insight.talent.TalentSubmission.Action;
 import com.query.insight.talent.TalentSubmission.Status;
@@ -25,13 +26,15 @@ public class TalentSubmissionService {
     private final TalentSubmissionRepository repository;
     private final NotificationService notifications;
     private final AuditService audit;
+    private final ProfileStatusService profileStatuses;
 
     public TalentSubmissionService(JdbcClient jdbc, TalentSubmissionRepository repository,
-            NotificationService notifications, AuditService audit) {
+            NotificationService notifications, AuditService audit, ProfileStatusService profileStatuses) {
         this.jdbc = jdbc;
         this.repository = repository;
         this.notifications = notifications;
         this.audit = audit;
+        this.profileStatuses = profileStatuses;
     }
 
     public List<TalentSubmissionRepository.Row> mine(String employeePublicId, Type type) {
@@ -146,6 +149,8 @@ public class TalentSubmissionService {
         TalentSubmission.requireTransition(current.status(), Action.APPROVE);
         long actorId = accountId(managerAccountPublicId);
         Instant now = Instant.now();
+        jdbc.sql("SELECT id FROM employees WHERE id=:employeeId FOR UPDATE")
+                .param("employeeId", current.employeeId()).query(Long.class).single();
         applyOfficial(current, repository.payload(current), now);
         for (var predecessor : repository.approvedPredecessors(current)) {
             repository.markSuperseded(predecessor.id(), now);
@@ -153,6 +158,7 @@ public class TalentSubmissionService {
                     null, traceId, now);
         }
         var approved = repository.markApproved(current.id(), version, actorId, now);
+        profileStatuses.recalculate(current.employeeId());
         recordEvent(current.id(), actorId, "APPROVE", Status.SUBMITTED, Status.APPROVED, null, traceId, now);
         notifications.notifyEmployee(current.employeeId(), "TALENT_APPROVED", "タレント申請が承認されました",
                 "申請内容が正式なタレント情報へ反映されました。", "/talent/" + current.logicalPublicId() + "/history",
