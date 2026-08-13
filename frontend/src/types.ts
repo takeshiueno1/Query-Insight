@@ -1,8 +1,12 @@
+export type Role = 'GENERAL' | 'OFFICER' | 'ADMIN'
+export type DataScope = 'SELF' | 'SUBORDINATES' | 'ALL'
+
 export type User = {
   accountPublicId: string
   employeePublicId: string
   displayName: string
-  roles: string[]
+  roles: Role[]
+  scopes: DataScope[]
 }
 
 export type Problem = {

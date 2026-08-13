@@ -18,7 +18,7 @@ export function MasterRequestsPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const { register, handleSubmit, reset } = useForm<RequestValues>()
-  const reviewer = user?.roles.some((role) => role === 'EXECUTIVE' || role === 'SYSTEM_ADMIN') ?? false
+  const reviewer = user?.roles.includes('ADMIN') ?? false
   const query = useQuery({ queryKey: ['master-requests'], queryFn: () => api<MasterRequest[]>('/api/v1/master-requests/me') })
   const reviewQuery = useQuery({ queryKey: ['admin-master-requests'], queryFn: () => api<MasterRequest[]>('/api/v1/admin/master-requests?status=SUBMITTED'), enabled: reviewer })
   const mutation = useMutation({
