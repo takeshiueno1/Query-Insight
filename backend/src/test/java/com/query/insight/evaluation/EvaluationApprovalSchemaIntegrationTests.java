@@ -83,6 +83,14 @@ class EvaluationApprovalSchemaIntegrationTests {
                 .isEqualTo(new ScoreAndGrade("4.25", "A"));
         assertThat(targetScore(legacyJdbc, "07R00000000000000000000002"))
                 .isEqualTo(new ScoreAndGrade("2.50", "C"));
+        assertThat(managerScore(legacyJdbc, "08R00000000000000000000003"))
+                .isEqualTo(new ScoreAndGrade(null, null));
+        assertThat(targetScore(legacyJdbc, "07R00000000000000000000003"))
+                .isEqualTo(new ScoreAndGrade(null, null));
+        assertThat(managerScore(legacyJdbc, "08R00000000000000000000004"))
+                .isEqualTo(new ScoreAndGrade("63.33", "C"));
+        assertThat(targetScore(legacyJdbc, "07R00000000000000000000004"))
+                .isEqualTo(new ScoreAndGrade(null, null));
         assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("9"));
     }
 
@@ -101,6 +109,10 @@ class EvaluationApprovalSchemaIntegrationTests {
                   ('01R00000000000000000000003','QI-RANK-01','旧','対象一','rank-one@example.invalid',
                     (SELECT id FROM departments WHERE code='LEGACY_RANK'),'ACTIVE',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),
                   ('01R00000000000000000000004','QI-RANK-02','旧','対象二','rank-two@example.invalid',
+                    (SELECT id FROM departments WHERE code='LEGACY_RANK'),'ACTIVE',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),
+                  ('01R00000000000000000000005','QI-RANK-03','旧','対象三','rank-three@example.invalid',
+                    (SELECT id FROM departments WHERE code='LEGACY_RANK'),'ACTIVE',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),
+                  ('01R00000000000000000000006','QI-RANK-04','旧','対象四','rank-four@example.invalid',
                     (SELECT id FROM departments WHERE code='LEGACY_RANK'),'ACTIVE',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
                 """).update();
         legacyJdbc.sql("""
@@ -131,6 +143,18 @@ class EvaluationApprovalSchemaIntegrationTests {
                 WHERE p.name='旧ランク期間' AND e.employee_no='QI-RANK-02' AND m.employee_no='QI-RANK-MGR'
                 """).update();
         legacyJdbc.sql("""
+                INSERT INTO evaluation_targets(public_id,period_id,employee_id,evaluator_employee_id,status,version)
+                SELECT '07R00000000000000000000003',p.id,e.id,m.id,'DRAFT',0
+                FROM evaluation_periods p,employees e,employees m
+                WHERE p.name='旧ランク期間' AND e.employee_no='QI-RANK-03' AND m.employee_no='QI-RANK-MGR'
+                """).update();
+        legacyJdbc.sql("""
+                INSERT INTO evaluation_targets(public_id,period_id,employee_id,evaluator_employee_id,status,version)
+                SELECT '07R00000000000000000000004',p.id,e.id,m.id,'EXECUTIVE_REVIEW',0
+                FROM evaluation_periods p,employees e,employees m
+                WHERE p.name='旧ランク期間' AND e.employee_no='QI-RANK-04' AND m.employee_no='QI-RANK-MGR'
+                """).update();
+        legacyJdbc.sql("""
                 INSERT INTO manager_evaluations(public_id,target_id,revision_no,status,summary,weighted_score,grade,
                   submitted_at,finalized_at,version)
                 SELECT '08R00000000000000000000001',id,1,'FINALIZED','旧尺度',3.33,'B',
@@ -145,11 +169,22 @@ class EvaluationApprovalSchemaIntegrationTests {
                 WHERE public_id='07R00000000000000000000002'
                 """).update();
         legacyJdbc.sql("""
+                INSERT INTO manager_evaluations(public_id,target_id,revision_no,status,summary,version)
+                SELECT '08R00000000000000000000003',id,1,'DRAFT','未提出',0 FROM evaluation_targets
+                WHERE public_id='07R00000000000000000000003'
+                """).update();
+        legacyJdbc.sql("""
+                INSERT INTO manager_evaluations(public_id,target_id,revision_no,status,summary,submitted_at,version)
+                SELECT '08R00000000000000000000004',id,1,'SUBMITTED','承認待ち',CURRENT_TIMESTAMP,0
+                FROM evaluation_targets WHERE public_id='07R00000000000000000000004'
+                """).update();
+        legacyJdbc.sql("""
                 INSERT INTO manager_evaluation_details(manager_evaluation_id,axis_code,level,comment)
                 SELECT m.id,v.axis_code,v.level,'旧評価' FROM manager_evaluations m
                 CROSS JOIN (VALUES ('TECHNICAL',5),('DESIGN',4),('BUSINESS',3),
                   ('COMMUNICATION',2),('DELIVERY',1),('IMPROVEMENT',0)) v(axis_code,level)
-                WHERE m.public_id='08R00000000000000000000001'
+                WHERE m.public_id IN ('08R00000000000000000000001','08R00000000000000000000003',
+                  '08R00000000000000000000004')
                 """).update();
         legacyJdbc.sql("""
                 UPDATE evaluation_targets SET current_manager_evaluation_id=(
@@ -161,18 +196,32 @@ class EvaluationApprovalSchemaIntegrationTests {
                   SELECT id FROM manager_evaluations WHERE public_id='08R00000000000000000000002')
                 WHERE public_id='07R00000000000000000000002'
                 """).update();
+        legacyJdbc.sql("""
+                UPDATE evaluation_targets SET current_manager_evaluation_id=(
+                  SELECT id FROM manager_evaluations WHERE public_id='08R00000000000000000000003')
+                WHERE public_id='07R00000000000000000000003'
+                """).update();
+        legacyJdbc.sql("""
+                UPDATE evaluation_targets SET current_manager_evaluation_id=(
+                  SELECT id FROM manager_evaluations WHERE public_id='08R00000000000000000000004')
+                WHERE public_id='07R00000000000000000000004'
+                """).update();
     }
 
     private ScoreAndGrade managerScore(JdbcClient legacyJdbc, String publicId) {
         return legacyJdbc.sql("SELECT weighted_score,grade FROM manager_evaluations WHERE public_id=:publicId")
                 .param("publicId", publicId).query((rs, row) -> new ScoreAndGrade(
-                        rs.getBigDecimal("weighted_score").toPlainString(), rs.getString("grade"))).single();
+                        decimalText(rs.getBigDecimal("weighted_score")), rs.getString("grade"))).single();
     }
 
     private ScoreAndGrade targetScore(JdbcClient legacyJdbc, String publicId) {
         return legacyJdbc.sql("SELECT final_score,final_grade FROM evaluation_targets WHERE public_id=:publicId")
                 .param("publicId", publicId).query((rs, row) -> new ScoreAndGrade(
-                        rs.getBigDecimal("final_score").toPlainString(), rs.getString("final_grade"))).single();
+                        decimalText(rs.getBigDecimal("final_score")), rs.getString("final_grade"))).single();
+    }
+
+    private static String decimalText(java.math.BigDecimal value) {
+        return value == null ? null : value.toPlainString();
     }
 
     private DecimalShape decimalShape(String table, String column) {

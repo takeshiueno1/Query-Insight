@@ -25,7 +25,9 @@ SET weighted_score=(
         ELSE 'F' END
       FROM manager_evaluation_details d
       WHERE d.manager_evaluation_id=manager_evaluations.id)
-WHERE EXISTS (
+WHERE (weighted_score IS NOT NULL OR grade IS NOT NULL
+    OR status IN ('SUBMITTED','FINALIZED','SUPERSEDED'))
+  AND EXISTS (
   SELECT 1 FROM manager_evaluation_details d
   WHERE d.manager_evaluation_id=manager_evaluations.id);
 
@@ -36,7 +38,8 @@ SET final_score=(
     final_grade=(
       SELECT m.grade FROM manager_evaluations m
       WHERE m.id=evaluation_targets.current_manager_evaluation_id)
-WHERE current_manager_evaluation_id IS NOT NULL
+WHERE status='FINALIZED'
+  AND current_manager_evaluation_id IS NOT NULL
   AND EXISTS (
     SELECT 1 FROM manager_evaluation_details d
     WHERE d.manager_evaluation_id=evaluation_targets.current_manager_evaluation_id);
