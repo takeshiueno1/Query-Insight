@@ -32,7 +32,7 @@ ALTER TABLE master_addition_requests ADD COLUMN request_type VARCHAR(100) NULL;
 ALTER TABLE master_addition_requests ADD COLUMN request_description VARCHAR(1000) NULL;
 UPDATE master_addition_requests
 SET request_type=master_type,
-    request_description=COALESCE(CAST(proposed_payload_json AS VARCHAR),'')
+    request_description=LEFT(COALESCE(CAST(proposed_payload_json AS VARCHAR),''),1000)
 WHERE request_type IS NULL;
 ALTER TABLE master_addition_requests ALTER COLUMN request_type SET NOT NULL;
 ALTER TABLE master_addition_requests ALTER COLUMN request_description SET NOT NULL;

@@ -40,7 +40,7 @@ class MasterRequestIntegrationTests {
                 """).param("publicId", request.publicId()).query(String.class).single()).isEqualTo("SKILL");
         assertThat(jdbc.sql("""
                 SELECT request_description FROM master_addition_requests WHERE public_id=:publicId
-                """).param("publicId", request.publicId()).query(String.class).single()).contains("NEW_CLOUD_ARCH");
+                """).param("publicId", request.publicId()).query(String.class).single()).isEqualTo("クラウド設計検証");
 
         var approved = service.approve(administrator.accountPublicId(), Set.of("ADMIN"),
                 request.publicId(), request.version(), traceId(2));
@@ -113,7 +113,8 @@ class MasterRequestIntegrationTests {
         Flyway.configure().dataSource(dataSource).locations("classpath:db/migration")
                 .target(MigrationVersion.fromVersion("5")).load().migrate();
         JdbcClient legacyJdbc = JdbcClient.create(dataSource);
-        insertLegacyMasterRequest(legacyJdbc);
+        String legacyPayload = "{\"code\":\"" + "L".repeat(1001) + "\"}";
+        insertLegacyMasterRequest(legacyJdbc, legacyPayload);
 
         Flyway flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
         flyway.migrate();
@@ -126,15 +127,35 @@ class MasterRequestIntegrationTests {
         assertThat(legacyJdbc.sql("""
                 SELECT request_description FROM master_addition_requests
                 WHERE public_id='08M00000000000000000000001'
-                """).query(String.class).single()).contains("LEGACY_SKILL");
+                """).query(String.class).single()).hasSize(1000);
         assertThat(legacyJdbc.sql("""
-                SELECT COUNT(*) FROM master_addition_requests
+                SELECT LENGTH(CAST(proposed_payload_json AS VARCHAR)) FROM master_addition_requests
                 WHERE public_id='08M00000000000000000000001'
-                  AND master_type='SKILL' AND CAST(proposed_payload_json AS VARCHAR) LIKE '%LEGACY_SKILL%'
-                """).query(Integer.class).single()).isEqualTo(1);
+                """).query(Integer.class).single()).isGreaterThan(1000);
     }
 
-    private void insertLegacyMasterRequest(JdbcClient legacyJdbc) {
+    @Test
+    void maximumEscapedMasterPayloadUsesShortNameAsRequestDescription() throws Exception {
+        Actor employee = actor("QITEST");
+        String name = "N".repeat(100);
+        var payload = json.createObjectNode()
+                .put("code", "A".repeat(40))
+                .put("name", name)
+                .put("category", "C".repeat(40))
+                .put("description", "\"".repeat(500));
+
+        var request = service.create(employee.accountPublicId(), MasterRequestService.Type.SKILL, payload, traceId(10));
+
+        assertThat(jdbc.sql("""
+                SELECT LENGTH(CAST(proposed_payload_json AS VARCHAR)) FROM master_addition_requests
+                WHERE public_id=:publicId
+                """).param("publicId", request.publicId()).query(Integer.class).single()).isGreaterThan(1000);
+        assertThat(jdbc.sql("""
+                SELECT request_description FROM master_addition_requests WHERE public_id=:publicId
+                """).param("publicId", request.publicId()).query(String.class).single()).isEqualTo(name);
+    }
+
+    private void insertLegacyMasterRequest(JdbcClient legacyJdbc, String payload) {
         legacyJdbc.sql("""
                 INSERT INTO departments(public_id,code,name,status,version,created_at,updated_at)
                 VALUES ('01M00000000000000000000001','LEGACY','旧データ部','ACTIVE',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
@@ -155,8 +176,8 @@ class MasterRequestIntegrationTests {
                 INSERT INTO master_addition_requests(public_id,requested_by_account_id,master_type,
                   proposed_payload_json,status,version,requested_at)
                 VALUES ('08M00000000000000000000001',(SELECT id FROM accounts WHERE login_id_normalized='legacy'),
-                  'SKILL',CAST('{"code":"LEGACY_SKILL"}' AS JSONB),'SUBMITTED',0,CURRENT_TIMESTAMP)
-                """).update();
+                  'SKILL',CAST(:payload AS JSONB),'SUBMITTED',0,CURRENT_TIMESTAMP)
+                """).param("payload", payload).update();
     }
 
     private Actor actor(String employeeNo) {

@@ -53,7 +53,7 @@ public class MasterRequestService {
                 VALUES (:publicId,:accountId,:type,:payload,:requestType,:requestDescription,'SUBMITTED',0,:now,NULL)
                 """).param("publicId", publicId).param("accountId", accountId).param("type", type.name())
                 .param("payload", jsonParameter(normalized)).param("requestType", type.name())
-                .param("requestDescription", jsonText(normalized)).param("now", Timestamp.from(now)).update();
+                .param("requestDescription", requestDescription(type, normalized)).param("now", Timestamp.from(now)).update();
         audit.record(accountId, "MASTER_REQUEST_SUBMIT", "MASTER_REQUEST", publicId,
                 "SUCCESS", "SELF", traceId);
         return find(publicId);
@@ -245,6 +245,12 @@ public class MasterRequestService {
         } catch (JacksonException exception) {
             throw new IllegalStateException("Master request payload could not be serialized", exception);
         }
+    }
+
+    private String requestDescription(Type type, JsonNode payload) {
+        String name = text(payload, "name").trim();
+        String description = name.isBlank() ? type.name() : name;
+        return description.length() <= 1000 ? description : description.substring(0, 1000);
     }
 
     private JsonNode parse(String value) {
