@@ -41,6 +41,43 @@ class PrototypeAnalysisServiceTests {
     }
 
     @Test
+    void careerOnlyRecommendationUsesExistingRoleAndTechnologyWithoutClaimingSkills() {
+        var careerOnly = new AiAnalysisClient.TalentProfileInput(null, 0, List.of(), List.of(),
+                List.of(new AiAnalysisClient.ExperienceInput("開発リーダー", "SaaS", "基盤刷新",
+                        "リードタイム短縮", "Java、PostgreSQL")), List.of());
+
+        var result = service.analyze(status("0", "0", "60", "0"), careerOnly);
+
+        assertThat(result.recommendedActions()).extracting(AiAnalysisClient.RecommendedAction::action)
+                .anySatisfy(action -> assertThat(action).containsAnyOf("開発リーダー", "Java", "PostgreSQL"))
+                .noneSatisfy(action -> assertThat(action).contains("承認済みのスキル・専門知識"));
+    }
+
+    @Test
+    void certificationOnlyRecommendationUsesExistingCertificationWithoutClaimingSkills() {
+        var certificationOnly = new AiAnalysisClient.TalentProfileInput(null, 0, List.of(), List.of(), List.of(),
+                List.of(new AiAnalysisClient.CertificationInput("応用情報技術者", "IPA")));
+
+        var result = service.analyze(status("0", "0", "0", "70"), certificationOnly);
+
+        assertThat(result.recommendedActions()).extracting(AiAnalysisClient.RecommendedAction::action)
+                .anySatisfy(action -> assertThat(action).contains("応用情報技術者"))
+                .noneSatisfy(action -> assertThat(action).contains("承認済みのスキル・専門知識"));
+    }
+
+    @Test
+    void skillOnlyRecommendationUsesExistingTopSkill() {
+        var skillOnly = new AiAnalysisClient.TalentProfileInput(null, 0,
+                List.of(new AiAnalysisClient.SkillInput("Java", 5, 6, "開発実績")),
+                List.of(), List.of(), List.of());
+
+        var result = service.analyze(status("80", "0", "0", "0"), skillOnly);
+
+        assertThat(result.recommendedActions()).extracting(AiAnalysisClient.RecommendedAction::action)
+                .anySatisfy(action -> assertThat(action).contains("Java"));
+    }
+
+    @Test
     void allZeroAndNoTalentStillReturnsUsefulJapaneseAdvice() {
         var emptyTalent = new AiAnalysisClient.TalentProfileInput(null, 0,
                 List.of(), List.of(), List.of(), List.of());

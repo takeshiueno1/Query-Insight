@@ -6,6 +6,8 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -13,6 +15,9 @@ import org.springframework.stereotype.Service;
 public class PrototypeAnalysisService {
     public static final String MODEL = "ルールベース V1";
     private static final BigDecimal ZERO = BigDecimal.ZERO;
+    private static final Pattern EMAIL = Pattern.compile("(?i)[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}");
+    private static final Pattern PUBLIC_ID = Pattern.compile("(?i)(?<![A-Z0-9])[A-Z0-9]{26}(?![A-Z0-9])");
+    private static final Pattern EMPLOYEE_NUMBER = Pattern.compile("(?i)^[A-Z][A-Z0-9_-]*\\d{3,}$");
     private final Clock clock;
 
     @Autowired
@@ -55,8 +60,7 @@ public class PrototypeAnalysisService {
             actions.add(new AiAnalysisClient.RecommendedAction(actionFor(category), priority));
         }
         if (hasTalent(talentProfile)) {
-            actions.add(new AiAnalysisClient.RecommendedAction(
-                    "承認済みのスキル・専門知識を次の業務目標に結び付けてください。", "LOW"));
+            actions.add(new AiAnalysisClient.RecommendedAction(talentAction(talentProfile), "LOW"));
         } else {
             actions.add(new AiAnalysisClient.RecommendedAction(
                     "まず1件、現在の業務を説明できるタレント情報を申請してください。", "HIGH"));
@@ -90,6 +94,45 @@ public class PrototypeAnalysisService {
     private static boolean hasTalent(AiAnalysisClient.TalentProfileInput talent) {
         return talent != null && (!talent.skills().isEmpty() || !talent.knowledge().isEmpty()
                 || !talent.experiences().isEmpty() || !talent.certifications().isEmpty());
+    }
+
+    private static String talentAction(AiAnalysisClient.TalentProfileInput talent) {
+        if (!talent.skills().isEmpty()) {
+            return safeLabel(talent.skills().getFirst().name())
+                    .map(name -> "承認済みスキル「" + name + "」を次の業務目標に結び付けてください。")
+                    .orElse("承認済みスキルを次の業務目標に結び付けてください。");
+        }
+        if (!talent.knowledge().isEmpty()) {
+            return safeLabel(talent.knowledge().getFirst().name())
+                    .map(name -> "承認済み専門知識「" + name + "」を次の業務目標に結び付けてください。")
+                    .orElse("承認済み専門知識を次の業務目標に結び付けてください。");
+        }
+        if (!talent.experiences().isEmpty()) {
+            AiAnalysisClient.ExperienceInput experience = talent.experiences().getFirst();
+            Optional<String> role = safeLabel(experience.role());
+            Optional<String> technologies = safeLabel(experience.technologies());
+            if (role.isPresent() && technologies.isPresent()) {
+                return "承認済み業務経歴の役割「" + role.get() + "」と技術「" + technologies.get()
+                        + "」を次の業務目標に結び付けてください。";
+            }
+            return role.map(value -> "承認済み業務経歴の役割「" + value
+                    + "」を次の業務目標に結び付けてください。")
+                    .or(() -> technologies.map(value -> "承認済み業務経歴の技術「" + value
+                            + "」を次の業務目標に結び付けてください。"))
+                    .orElse("承認済み業務経歴を次の業務目標に結び付けてください。");
+        }
+        return safeLabel(talent.certifications().getFirst().name())
+                .map(name -> "承認済み資格「" + name + "」の知識を業務で活用してください。")
+                .orElse("承認済み資格の知識を業務で活用してください。");
+    }
+
+    private static Optional<String> safeLabel(String value) {
+        if (value == null || value.isBlank() || value.length() > 100
+                || EMAIL.matcher(value).find() || PUBLIC_ID.matcher(value).find()
+                || EMPLOYEE_NUMBER.matcher(value.strip()).matches()) {
+            return Optional.empty();
+        }
+        return Optional.of(value.strip());
     }
 
     private static String display(BigDecimal score) {

@@ -26,6 +26,7 @@ public class AiAnalysisService {
     private final ObjectMapper objectMapper;
     private final PrototypeAnalysisService prototype;
     private final ProfileStatusService profileStatuses;
+    private final AnalysisPrivacySanitizer privacySanitizer;
     private final Clock clock;
     private final boolean enabled;
     private final String configuredProvider;
@@ -33,21 +34,24 @@ public class AiAnalysisService {
     @Autowired
     public AiAnalysisService(JdbcClient jdbc, AiAnalysisClient client, AuditService audit,
             ObjectMapper objectMapper, PrototypeAnalysisService prototype, ProfileStatusService profileStatuses,
+            AnalysisPrivacySanitizer privacySanitizer,
             @Value("${app.features.ai-enabled}") boolean enabled,
             @Value("${app.ai.provider:ollama}") String configuredProvider) {
-        this(jdbc, client, audit, objectMapper, prototype, profileStatuses, Clock.systemUTC(), enabled,
+        this(jdbc, client, audit, objectMapper, prototype, profileStatuses, privacySanitizer,
+                Clock.systemUTC(), enabled,
                 configuredProvider);
     }
 
     AiAnalysisService(JdbcClient jdbc, AiAnalysisClient client, AuditService audit,
             ObjectMapper objectMapper, PrototypeAnalysisService prototype, ProfileStatusService profileStatuses,
-            Clock clock, boolean enabled, String configuredProvider) {
+            AnalysisPrivacySanitizer privacySanitizer, Clock clock, boolean enabled, String configuredProvider) {
         this.jdbc = jdbc;
         this.client = client;
         this.audit = audit;
         this.objectMapper = objectMapper;
         this.prototype = prototype;
         this.profileStatuses = profileStatuses;
+        this.privacySanitizer = privacySanitizer;
         this.clock = clock;
         this.enabled = enabled;
         this.configuredProvider = configuredProvider;
@@ -103,7 +107,10 @@ public class AiAnalysisService {
             List<AiAnalysisClient.AxisInput> axes, AiAnalysisClient.TalentProfileInput talentProfile) {
         if (!enabled) return prototype.analyze(profileStatus, talentProfile);
         try {
-            AiAnalysisClient.AnalysisPayload payload = client.analyze(context.periodName(), axes, talentProfile);
+            AnalysisPrivacySanitizer.SanitizedRequest request = privacySanitizer.sanitize(
+                    context.employeeId(), context.targetId(), context.periodName(), axes, talentProfile);
+            AiAnalysisClient.AnalysisPayload payload = client.analyze(
+                    request.periodName(), request.axes(), request.talentProfile());
             return new AnalysisResponse(null, context.periodName(), payload.summary(), payload.strengths(),
                     payload.growthAreas(), payload.recommendedActions(), client.model(), clock.instant(), "AI");
         } catch (ResourceAccessException exception) {

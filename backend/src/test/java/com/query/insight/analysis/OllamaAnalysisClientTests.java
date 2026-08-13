@@ -38,6 +38,8 @@ class OllamaAnalysisClientTests {
         assertThat(request.path("messages").get(1).path("content").asText())
                 .contains("TECHNICAL", "Java", "システム設計", "開発リーダー", "シニアソフトウェアエンジニア")
                 .doesNotContain("employeePublicId", "email", "employeeNo");
+        assertThat(request.path("messages").get(0).path("content").asText())
+                .contains("ランク判定", "昇進", "昇格", "採用", "解雇", "報酬", "配置判断", "人事判断");
     }
 
     @Test
@@ -69,5 +71,37 @@ class OllamaAnalysisClientTests {
         assertThatThrownBy(() -> client.parseResponseBody(response))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("応答形式が不正");
+    }
+
+    @Test
+    void rejectsRankAndPersonnelDecisionsInEveryFreeTextField() throws Exception {
+        List<String> forbiddenTerms = List.of("Sランク", "A評価", "ランク判定", "昇進", "昇格", "採用", "解雇", "報酬", "配置判断", "人事判断");
+        for (String forbiddenTerm : forbiddenTerms) {
+            assertForbidden(responseBody(content(forbiddenTerm, "技術力", "障害対応の実績", "設計レビューを主導")));
+        }
+        assertForbidden(responseBody(content("安定した遂行力", "昇進候補", "障害対応の実績", "設計レビューを主導")));
+        assertForbidden(responseBody(content("安定した遂行力", "技術力", "昇格させる根拠", "設計レビューを主導")));
+        assertForbidden(responseBody(content("安定した遂行力", "技術力", "障害対応の実績", "配置判断を行う")));
+    }
+
+    private void assertForbidden(String responseBody) {
+        assertThatThrownBy(() -> client.parseResponseBody(responseBody))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("AI_RESPONSE_PROHIBITED"));
+    }
+
+    private String responseBody(String content) throws Exception {
+        var responseNode = objectMapper.createObjectNode();
+        responseNode.putObject("message").put("role", "assistant").put("content", content);
+        return objectMapper.writeValueAsString(responseNode);
+    }
+
+    private String content(String summary, String title, String evidence, String action) throws Exception {
+        var content = objectMapper.createObjectNode();
+        content.put("summary", summary);
+        content.putArray("strengths").addObject().put("title", title).put("evidence", evidence);
+        content.putArray("growthAreas").addObject().put("title", "設計力").put("evidence", "設計根拠を増やす");
+        content.putArray("recommendedActions").addObject().put("action", action).put("priority", "HIGH");
+        return objectMapper.writeValueAsString(content);
     }
 }

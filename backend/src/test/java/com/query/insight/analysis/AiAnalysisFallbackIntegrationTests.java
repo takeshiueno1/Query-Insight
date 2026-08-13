@@ -30,6 +30,7 @@ class AiAnalysisFallbackIntegrationTests {
     @Autowired private AuditService audit;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private ProfileStatusService profileStatuses;
+    @Autowired private AnalysisPrivacySanitizer privacySanitizer;
     private Actor actor;
 
     @BeforeEach
@@ -85,8 +86,62 @@ class AiAnalysisFallbackIntegrationTests {
         assertThatThrownBy(() -> service(serialization, true)
                 .create(actor.employeePublicId(), actor.accountPublicId(), traceId(4)))
                 .isInstanceOf(IllegalStateException.class);
+
+        StubClient prohibited = new StubClient();
+        prohibited.failure = new ApiException(org.springframework.http.HttpStatus.BAD_GATEWAY,
+                "AI_RESPONSE_PROHIBITED", "AI分析の応答に人事判断またはランク判定が含まれています");
+        assertThatThrownBy(() -> service(prohibited, true)
+                .create(actor.employeePublicId(), actor.accountPublicId(), traceId(6)))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo("AI_RESPONSE_PROHIBITED"));
         assertThat(jdbc.sql("SELECT COUNT(*) FROM ai_analysis_results WHERE generated_at=:generatedAt")
                 .param("generatedAt", java.sql.Timestamp.from(NOW)).query(Integer.class).single()).isZero();
+    }
+
+    @Test
+    void everyAiBoundFreeTextRemovesStructuredIdentityAndGenericIdentifiers() {
+        actor = actor("QI0005");
+        StubClient client = new StubClient();
+        SensitiveIdentity identity = jdbc.sql("""
+                SELECT e.last_name,e.first_name,e.email,e.employee_no,e.public_id employee_public_id,
+                  d.name department_name,d.code department_code,d.public_id department_public_id,
+                  a.public_id account_public_id,a.login_id_normalized,t.public_id target_public_id
+                FROM employees e
+                JOIN accounts a ON a.employee_id=e.id
+                JOIN evaluation_targets t ON t.employee_id=e.id
+                JOIN evaluation_periods p ON p.id=t.period_id AND p.status='OPEN'
+                LEFT JOIN departments d ON d.id=e.department_id
+                WHERE e.public_id=:employeePublicId
+                ORDER BY p.start_date DESC LIMIT 1
+                """).param("employeePublicId", actor.employeePublicId())
+                .query((rs, row) -> new SensitiveIdentity(rs.getString("last_name"), rs.getString("first_name"),
+                        rs.getString("email"), rs.getString("employee_no"), rs.getString("employee_public_id").trim(),
+                        rs.getString("department_name"), rs.getString("department_code"),
+                        rs.getString("department_public_id").trim(), rs.getString("account_public_id").trim(),
+                        rs.getString("login_id_normalized"), rs.getString("target_public_id").trim()))
+                .single();
+        String genericEmail = "other.person@example.net";
+        String genericPublicId = com.query.insight.common.PublicIdGenerator.next();
+        String fullName = identity.lastName() + identity.firstName();
+        String sensitiveText = String.join(" / ", identity.values()) + " / " + fullName + " / "
+                + identity.lastName() + " " + identity.firstName() + " / " + genericEmail + " / " + genericPublicId;
+        seedSensitiveAiInput(identity, sensitiveText, genericEmail, genericPublicId);
+
+        var response = service(client, true).create(
+                actor.employeePublicId(), actor.accountPublicId(), traceId(7));
+
+        String captured = client.periodName + "\n" + client.axes + "\n" + client.talent;
+        assertThat(captured).contains("[除去]");
+        assertThat(captured).doesNotContain(identity.values().toArray(String[]::new))
+                .doesNotContain(fullName, identity.lastName() + " " + identity.firstName(),
+                        genericEmail, genericPublicId);
+        assertThat(response.periodName()).isEqualTo(genericEmail);
+        assertThat(jdbc.sql("""
+                SELECT comment FROM manager_evaluation_details WHERE manager_evaluation_id=(
+                  SELECT current_manager_evaluation_id FROM evaluation_targets WHERE public_id=:targetPublicId)
+                LIMIT 1
+                """).param("targetPublicId", identity.targetPublicId()).query(String.class).single())
+                .isEqualTo(sensitiveText);
     }
 
     @Test
@@ -123,7 +178,7 @@ class AiAnalysisFallbackIntegrationTests {
 
     private AiAnalysisService service(StubClient client, boolean enabled) {
         return new AiAnalysisService(jdbc, client, audit, objectMapper,
-                new PrototypeAnalysisService(Clock.fixed(NOW, ZoneOffset.UTC)), profileStatuses,
+                new PrototypeAnalysisService(Clock.fixed(NOW, ZoneOffset.UTC)), profileStatuses, privacySanitizer,
                 Clock.fixed(NOW, ZoneOffset.UTC), enabled, "ollama");
     }
 
@@ -150,6 +205,51 @@ class AiAnalysisFallbackIntegrationTests {
                 """).param("publicId", publicId).param("employeePublicId", employeePublicId).update();
     }
 
+    private void seedSensitiveAiInput(SensitiveIdentity identity, String sensitiveText,
+            String genericEmail, String genericPublicId) {
+        jdbc.sql("""
+                UPDATE evaluation_periods SET name=:value WHERE id=(
+                  SELECT t.period_id FROM evaluation_targets t WHERE t.public_id=:targetPublicId)
+                """).param("value", genericEmail).param("targetPublicId", identity.targetPublicId()).update();
+        jdbc.sql("""
+                UPDATE manager_evaluation_details SET comment=:value WHERE manager_evaluation_id=(
+                  SELECT t.current_manager_evaluation_id FROM evaluation_targets t
+                  WHERE t.public_id=:targetPublicId)
+                """).param("value", sensitiveText).param("targetPublicId", identity.targetPublicId()).update();
+        jdbc.sql("""
+                UPDATE employee_skills SET evidence=:value WHERE employee_id=(
+                  SELECT id FROM employees WHERE public_id=:employeePublicId)
+                """).param("value", sensitiveText).param("employeePublicId", identity.employeePublicId()).update();
+        jdbc.sql("""
+                UPDATE skill_masters SET name=:value WHERE id=(SELECT es.skill_id FROM employee_skills es
+                  JOIN talent_submissions ts ON ts.logical_public_id=es.public_id AND ts.status='APPROVED'
+                  WHERE es.employee_id=(SELECT id FROM employees WHERE public_id=:employeePublicId) LIMIT 1)
+                """).param("value", identity.email()).param("employeePublicId", identity.employeePublicId()).update();
+        jdbc.sql("""
+                UPDATE employee_knowledge SET evidence=:value WHERE employee_id=(
+                  SELECT id FROM employees WHERE public_id=:employeePublicId)
+                """).param("value", sensitiveText).param("employeePublicId", identity.employeePublicId()).update();
+        jdbc.sql("""
+                UPDATE knowledge_masters SET name=:value WHERE id=(SELECT ek.knowledge_id FROM employee_knowledge ek
+                  JOIN talent_submissions ts ON ts.logical_public_id=ek.public_id AND ts.status='APPROVED'
+                  WHERE ek.employee_id=(SELECT id FROM employees WHERE public_id=:employeePublicId) LIMIT 1)
+                """).param("value", identity.employeeNo()).param("employeePublicId", identity.employeePublicId()).update();
+        jdbc.sql("""
+                UPDATE career_histories SET role_name=:role,industry=:industry,summary=:summary,
+                  achievements=:achievements,technologies=:technologies
+                WHERE employee_id=(SELECT id FROM employees WHERE public_id=:employeePublicId)
+                """).param("role", identity.targetPublicId()).param("industry", genericEmail)
+                .param("summary", sensitiveText).param("achievements", genericPublicId)
+                .param("technologies", sensitiveText).param("employeePublicId", identity.employeePublicId()).update();
+        jdbc.sql("""
+                UPDATE certification_masters SET name=:name,issuer=:issuer WHERE id=(
+                  SELECT ec.certification_id FROM employee_certifications ec
+                  JOIN talent_submissions ts ON ts.logical_public_id=ec.public_id AND ts.status='APPROVED'
+                  WHERE ec.employee_id=(SELECT id FROM employees WHERE public_id=:employeePublicId) LIMIT 1)
+                """).param("name", identity.departmentName()).param("issuer", identity.departmentCode())
+                .param("employeePublicId", identity.employeePublicId()).update();
+    }
+
     private void assertPersistedAndAudited(String publicId, String provider, String model, String traceId) {
         assertThat(jdbc.sql("SELECT provider || ':' || model FROM ai_analysis_results WHERE public_id=:publicId")
                 .param("publicId", publicId).query(String.class).single()).isEqualTo(provider + ":" + model);
@@ -168,15 +268,26 @@ class AiAnalysisFallbackIntegrationTests {
             String departmentName) {
     }
 
+    private record SensitiveIdentity(String lastName, String firstName, String email, String employeeNo,
+            String employeePublicId, String departmentName, String departmentCode, String departmentPublicId,
+            String accountPublicId, String loginId, String targetPublicId) {
+        List<String> values() {
+            return List.of(lastName, firstName, email, employeeNo, employeePublicId, departmentName,
+                    departmentCode, departmentPublicId, accountPublicId, loginId, targetPublicId);
+        }
+    }
+
     private static final class StubClient implements AiAnalysisClient {
         int calls;
         RuntimeException failure;
+        String periodName;
         List<AxisInput> axes = List.of();
         TalentProfileInput talent;
 
         @Override
         public AnalysisPayload analyze(String periodName, List<AxisInput> axes, TalentProfileInput talentProfile) {
             calls++;
+            this.periodName = periodName;
             this.axes = List.copyOf(axes);
             this.talent = talentProfile;
             if (failure != null) throw failure;
