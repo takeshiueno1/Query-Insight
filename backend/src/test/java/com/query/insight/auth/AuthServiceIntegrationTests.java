@@ -34,7 +34,7 @@ class AuthServiceIntegrationTests {
     @Test
     void loginAndRefreshRotateTheRefreshToken() {
         AuthService.Session login = authService.login(
-                "employee@query.local", "QueryInsight#2026", "test-login");
+                "employee@query.local", "QueryInsight2026", "test-login");
         AuthService.Session refreshed = authService.refresh(login.refreshToken(), "test-refresh");
 
         assertThat(login.accessToken()).isNotBlank();
@@ -52,14 +52,14 @@ class AuthServiceIntegrationTests {
     @Test
     void unknownLoginIdReturnsTheSameAuthenticationFailure() {
         assertThatThrownBy(() -> authService.login(
-                "unknown-user@query.local", "QueryInsight#2026", "test-unknown-login"))
+                "unknown-user@query.local", "QueryInsight2026", "test-unknown-login"))
                 .isInstanceOf(ApiException.class)
                 .hasMessage("ログインIDまたはパスワードが正しくありません");
     }
 
     @Test
     void localTestUserCanLoginWithRequestedCredentials() {
-        AuthService.Session login = authService.login("test", "test", "test-local-user");
+        AuthService.Session login = authService.login("ueno", "5050Rock", "test-local-user");
 
         assertThat(login.accessToken()).isNotBlank();
         assertThat(login.principal().displayName()).isEqualTo("テスト ユーザー");
@@ -70,18 +70,18 @@ class AuthServiceIntegrationTests {
     @Test
     void repeatedInvalidPasswordsNeverLockTheAccount() {
         for (int attempt = 0; attempt < 6; attempt++) {
-            assertThatThrownBy(() -> authService.login("test", "wrong-password", "test-invalid-password"))
+            assertThatThrownBy(() -> authService.login("ueno", "Wrong5050", "test-invalid-password"))
                     .isInstanceOf(ApiException.class)
                     .hasMessage("ログインIDまたはパスワードが正しくありません");
         }
 
         var lockState = jdbc.sql("""
-                SELECT failed_count, locked_until FROM accounts WHERE login_id_normalized='test'
+                SELECT failed_count, locked_until FROM accounts WHERE login_id_normalized='ueno'
                 """).query((rs, row) -> new Object[] {rs.getInt("failed_count"), rs.getTimestamp("locked_until")})
                 .single();
         assertThat(lockState[0]).isEqualTo(0);
         assertThat(lockState[1]).isNull();
-        assertThat(authService.login("test", "test", "test-after-invalid-pass").accessToken()).isNotBlank();
+        assertThat(authService.login("ueno", "5050Rock", "test-after-invalid-pass").accessToken()).isNotBlank();
     }
 
     @Test
@@ -143,7 +143,7 @@ class AuthServiceIntegrationTests {
     }
 
     private void assertPrincipal(String loginId, String role, String scope) {
-        AuthService.Session session = authService.login(loginId, "QueryInsight#2026", "test-role-scope");
+        AuthService.Session session = authService.login(loginId, "QueryInsight2026", "test-role-scope");
         assertThat(session.principal().roles()).containsExactly(role);
         assertThat(session.principal().scopes()).containsExactly(scope);
     }

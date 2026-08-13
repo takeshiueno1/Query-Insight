@@ -18,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Profile("local")
 @Order(10)
 public class LocalDataInitializer implements ApplicationRunner {
-    private static final String LOCAL_PASSWORD = "QueryInsight#2026";
+    private static final String LOCAL_PASSWORD = "QueryInsight2026";
     private final JdbcClient jdbc;
     private final PasswordEncoder encoder;
 

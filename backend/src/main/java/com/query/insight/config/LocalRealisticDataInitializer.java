@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Profile("local")
 @Order(20)
 public class LocalRealisticDataInitializer implements ApplicationRunner {
-    private static final String LOCAL_PASSWORD = "QueryInsight#2026";
+    private static final String LOCAL_PASSWORD = "QueryInsight2026";
     private static final LocalDate REFERENCE_DATE = LocalDate.of(2026, 7, 1);
     private static final List<String> LAST_NAMES = List.of(
             "管理", "山田", "佐藤", "鈴木", "高橋", "田中", "伊藤", "渡辺", "中村", "小林",
@@ -422,8 +422,8 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
                     INSERT INTO accounts(public_id,employee_id,login_id_normalized,password_hash,status,failed_count,
                       password_changed_at,version) VALUES (:publicId,:employeeId,:loginId,:hash,'ACTIVE',0,:now,0)
                     """).param("publicId", PublicIdGenerator.next()).param("employeeId", employeeId)
-                    .param("loginId", testUser ? "test" : seed.email().toLowerCase())
-                    .param("hash", encoder.encode(testUser ? "test" : LOCAL_PASSWORD))
+                    .param("loginId", testUser ? "ueno" : seed.email().toLowerCase())
+                    .param("hash", encoder.encode(testUser ? "5050Rock" : LOCAL_PASSWORD))
                     .param("now", now).update();
         }
         if (count("""
