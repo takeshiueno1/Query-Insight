@@ -11,7 +11,9 @@ public final class EvaluationWorkflow {
         if (action == Action.SELF_SUBMIT && (from == Status.SELF_IN_PROGRESS || from == Status.SELF_RETURNED)) {
             return Status.SELF_SUBMITTED;
         }
-        if (action == Action.MANAGER_SAVE && from == Status.SELF_SUBMITTED) return Status.MANAGER_IN_PROGRESS;
+        if (action == Action.MANAGER_SAVE && (from == Status.DRAFT || from == Status.SELF_SUBMITTED)) {
+            return Status.MANAGER_IN_PROGRESS;
+        }
         if (action == Action.MANAGER_SAVE && (from == Status.MANAGER_IN_PROGRESS || from == Status.MANAGER_RETURNED)) {
             return from;
         }
@@ -27,7 +29,7 @@ public final class EvaluationWorkflow {
     }
 
     public enum Status {
-        SELF_IN_PROGRESS, SELF_SUBMITTED, SELF_RETURNED, MANAGER_IN_PROGRESS, MANAGER_RETURNED,
+        DRAFT, SELF_IN_PROGRESS, SELF_SUBMITTED, SELF_RETURNED, MANAGER_IN_PROGRESS, MANAGER_RETURNED,
         EXECUTIVE_REVIEW, FINALIZED;
 
         public static Status parse(String value) {

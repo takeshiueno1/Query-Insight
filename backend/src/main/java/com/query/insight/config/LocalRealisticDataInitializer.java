@@ -1,6 +1,8 @@
 package com.query.insight.config;
 
 import com.query.insight.common.PublicIdGenerator;
+import com.query.insight.evaluation.EvaluationRank;
+import com.query.insight.status.ProfileStatusService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -49,10 +51,13 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
 
     private final JdbcClient jdbc;
     private final PasswordEncoder encoder;
+    private final ProfileStatusService profileStatusService;
 
-    public LocalRealisticDataInitializer(JdbcClient jdbc, PasswordEncoder encoder) {
+    public LocalRealisticDataInitializer(JdbcClient jdbc, PasswordEncoder encoder,
+            ProfileStatusService profileStatusService) {
         this.jdbc = jdbc;
         this.encoder = encoder;
+        this.profileStatusService = profileStatusService;
     }
 
     @Override
@@ -163,7 +168,7 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
 
     private void ensureApprovalExample(String employeeNo, String targetStatus, LocalDateTime now) {
         Map<String, Object> target = jdbc.sql("""
-                SELECT t.id target_id,t.public_id target_public_id,t.evaluator_employee_id
+                SELECT t.id target_id,t.public_id target_public_id,t.employee_id,t.evaluator_employee_id
                 FROM evaluation_targets t JOIN employees e ON e.id=t.employee_id
                 WHERE e.employee_no=:employeeNo
                 """).param("employeeNo", employeeNo).query().singleRow();
@@ -175,26 +180,28 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
                 : "EXECUTIVE_REVIEW".equals(targetStatus) ? "SUBMITTED" : "DRAFT";
         List<Integer> levels = jdbc.sql("SELECT level FROM self_evaluation_details WHERE target_id=:targetId")
                 .param("targetId", targetId).query(Integer.class).list();
-        BigDecimal score = BigDecimal.valueOf(levels.stream().mapToInt(Integer::intValue).sum())
+        List<EvaluationRank> ranks = levels.stream().map(EvaluationRank::fromLevel).toList();
+        BigDecimal score = ranks.stream().map(rank -> new BigDecimal(rank.score())).reduce(BigDecimal.ZERO,
+                BigDecimal::add)
                 .divide(BigDecimal.valueOf(levels.size()), 2, RoundingMode.HALF_UP);
-        String grade = score.compareTo(new BigDecimal("4.50")) >= 0 ? "S"
-                : score.compareTo(new BigDecimal("4.00")) >= 0 ? "A"
-                : score.compareTo(new BigDecimal("3.00")) >= 0 ? "B" : "C";
+        String grade = EvaluationRank.overall(ranks).name();
+        long profileStatusSnapshotId = profileStatusService
+                .recalculate(((Number) target.get("EMPLOYEE_ID")).longValue()).id();
         jdbc.sql("""
                 INSERT INTO manager_evaluations(public_id,target_id,revision_no,status,summary,weighted_score,grade,
-                  submitted_at,finalized_at,version)
-                VALUES (:publicId,:targetId,1,:status,:summary,:score,:grade,:submittedAt,:finalizedAt,0)
+                  submitted_at,finalized_at,profile_status_snapshot_id,version)
+                VALUES (:publicId,:targetId,1,:status,:summary,:score,:grade,:submittedAt,:finalizedAt,:snapshotId,0)
                 """).param("publicId", PublicIdGenerator.next()).param("targetId", targetId)
                 .param("status", managerStatus).param("summary", "安定した成果と今後の成長可能性を確認しました。")
                 .param("score", score).param("grade", grade)
                 .param("submittedAt", "DRAFT".equals(managerStatus) ? null : now)
-                .param("finalizedAt", "FINALIZED".equals(managerStatus) ? now : null).update();
+                .param("finalizedAt", "FINALIZED".equals(managerStatus) ? now : null)
+                .param("snapshotId", profileStatusSnapshotId).update();
         long managerEvaluationId = jdbc.sql("SELECT id FROM manager_evaluations WHERE target_id=:targetId")
                 .param("targetId", targetId).query(Long.class).single();
         jdbc.sql("""
                 INSERT INTO manager_evaluation_details(manager_evaluation_id,axis_code,level,comment)
-                SELECT :managerId,axis_code,level,
-                  CASE WHEN axis_code='TECHNICAL' THEN '成果物と日常の行動を踏まえて判断しました。' ELSE NULL END
+                SELECT :managerId,axis_code,level,'成果物と日常の行動を踏まえて判断しました。'
                 FROM self_evaluation_details WHERE target_id=:targetId
                 """).param("managerId", managerEvaluationId).param("targetId", targetId).update();
         jdbc.sql("""

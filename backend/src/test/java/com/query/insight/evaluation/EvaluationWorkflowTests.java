@@ -9,6 +9,7 @@ import static com.query.insight.evaluation.EvaluationWorkflow.Action.MANAGER_SUB
 import static com.query.insight.evaluation.EvaluationWorkflow.Action.SELF_SUBMIT;
 import static com.query.insight.evaluation.EvaluationWorkflow.Status.EXECUTIVE_REVIEW;
 import static com.query.insight.evaluation.EvaluationWorkflow.Status.FINALIZED;
+import static com.query.insight.evaluation.EvaluationWorkflow.Status.DRAFT;
 import static com.query.insight.evaluation.EvaluationWorkflow.Status.MANAGER_IN_PROGRESS;
 import static com.query.insight.evaluation.EvaluationWorkflow.Status.MANAGER_RETURNED;
 import static com.query.insight.evaluation.EvaluationWorkflow.Status.SELF_IN_PROGRESS;
@@ -25,6 +26,7 @@ class EvaluationWorkflowTests {
     void allowsOnlyApprovedWorkflowTransitions() {
         assertThat(EvaluationWorkflow.requireTransition(SELF_IN_PROGRESS, SELF_SUBMIT)).isEqualTo(SELF_SUBMITTED);
         assertThat(EvaluationWorkflow.requireTransition(SELF_RETURNED, SELF_SUBMIT)).isEqualTo(SELF_SUBMITTED);
+        assertThat(EvaluationWorkflow.requireTransition(DRAFT, MANAGER_SAVE)).isEqualTo(MANAGER_IN_PROGRESS);
         assertThat(EvaluationWorkflow.requireTransition(SELF_SUBMITTED, MANAGER_SAVE)).isEqualTo(MANAGER_IN_PROGRESS);
         assertThat(EvaluationWorkflow.requireTransition(MANAGER_IN_PROGRESS, MANAGER_SAVE)).isEqualTo(MANAGER_IN_PROGRESS);
         assertThat(EvaluationWorkflow.requireTransition(MANAGER_RETURNED, MANAGER_SAVE)).isEqualTo(MANAGER_RETURNED);

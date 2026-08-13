@@ -6,7 +6,9 @@ import com.query.insight.common.PublicIdGenerator;
 import com.query.insight.evaluation.EvaluationWorkflow.Action;
 import com.query.insight.evaluation.EvaluationWorkflow.Status;
 import com.query.insight.notification.NotificationService;
+import com.query.insight.status.ProfileStatusService;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -25,14 +27,18 @@ public class EvaluationWorkflowService {
     private final JdbcClient jdbc;
     private final NotificationService notifications;
     private final AuditService audit;
+    private final ProfileStatusService profileStatusService;
 
-    public EvaluationWorkflowService(JdbcClient jdbc, NotificationService notifications, AuditService audit) {
+    public EvaluationWorkflowService(JdbcClient jdbc, NotificationService notifications, AuditService audit,
+            ProfileStatusService profileStatusService) {
         this.jdbc = jdbc;
         this.notifications = notifications;
         this.audit = audit;
+        this.profileStatusService = profileStatusService;
     }
 
-    public List<ManagerListItem> managerList(String evaluatorEmployeePublicId) {
+    public List<ManagerListItem> managerList(String accountPublicId, String evaluatorEmployeePublicId) {
+        requireManager(accountPublicId, evaluatorEmployeePublicId);
         return jdbc.sql("""
                 SELECT t.public_id,CONCAT(e.last_name,' ',e.first_name) employee_name,d.name department_name,
                   p.name period_name,t.status,t.version,p.manager_deadline
@@ -47,7 +53,9 @@ public class EvaluationWorkflowService {
                 .list();
     }
 
-    public ManagerEvaluationResponse managerDetail(String evaluatorEmployeePublicId, String targetPublicId) {
+    public ManagerEvaluationResponse managerDetail(String accountPublicId, String evaluatorEmployeePublicId,
+            String targetPublicId) {
+        requireManager(accountPublicId, evaluatorEmployeePublicId);
         Target target = managerTarget(evaluatorEmployeePublicId, targetPublicId);
         return managerResponse(target);
     }
@@ -55,16 +63,17 @@ public class EvaluationWorkflowService {
     @Transactional
     public ManagerEvaluationResponse saveManager(String evaluatorEmployeePublicId, String actorAccountPublicId,
             String targetPublicId, ManagerSaveRequest request, String traceId) {
+        long actorId = requireManager(actorAccountPublicId, evaluatorEmployeePublicId);
         Target target = managerTarget(evaluatorEmployeePublicId, targetPublicId);
         requireVersion(target, request.version());
         Status next = EvaluationWorkflow.requireTransition(Status.parse(target.status()), Action.MANAGER_SAVE);
         validateDetails(target.id(), request.details());
+        validateSummaryLength(request.summary());
         long managerEvaluationId = target.managerEvaluationId() == null
-                ? createManagerEvaluation(target.id(), request.summary())
+                ? createManagerEvaluation(target.id(), target.employeeId(), request.summary())
                 : updateManagerEvaluation(target.managerEvaluationId(), request.summary());
         replaceManagerDetails(managerEvaluationId, request.details());
         long nextVersion = updateTarget(target, next, managerEvaluationId, request.version(), false, null, null);
-        long actorId = accountId(actorAccountPublicId);
         recordEvent(target, managerEvaluationId, actorId, "MANAGER_SAVE", next, null, null, traceId);
         audit.record(actorId, "EVALUATION_MANAGER_SAVE", "EVALUATION_TARGET", target.publicId(), "SUCCESS",
                 "SUBORDINATES", traceId);
@@ -75,6 +84,7 @@ public class EvaluationWorkflowService {
     public ManagerEvaluationResponse returnToEmployee(String evaluatorEmployeePublicId, String actorAccountPublicId,
             String targetPublicId, long version, String reason, String traceId) {
         requireReason(reason);
+        long actorId = requireManager(actorAccountPublicId, evaluatorEmployeePublicId);
         Target target = managerTarget(evaluatorEmployeePublicId, targetPublicId);
         requireVersion(target, version);
         Status next = EvaluationWorkflow.requireTransition(Status.parse(target.status()), Action.MANAGER_RETURN_EMPLOYEE);
@@ -83,7 +93,6 @@ public class EvaluationWorkflowService {
                     .param("id", target.managerEvaluationId()).update();
         }
         long nextVersion = updateTarget(target, next, null, version, true, null, null);
-        long actorId = accountId(actorAccountPublicId);
         recordEvent(target, target.managerEvaluationId(), actorId, "MANAGER_RETURN_EMPLOYEE", next, reason, null, traceId);
         notifications.notifyEmployee(target.employeeId(), "EVALUATION_RETURNED", "自己評価が差し戻されました",
                 reason.strip(), "/evaluations/self", dedupe(target, "MANAGER_RETURN_EMPLOYEE", nextVersion));
@@ -95,6 +104,7 @@ public class EvaluationWorkflowService {
     @Transactional
     public ManagerEvaluationResponse submitManager(String evaluatorEmployeePublicId, String actorAccountPublicId,
             String targetPublicId, long version, String traceId) {
+        long actorId = requireManager(actorAccountPublicId, evaluatorEmployeePublicId);
         Target target = managerTarget(evaluatorEmployeePublicId, targetPublicId);
         requireVersion(target, version);
         Status next = EvaluationWorkflow.requireTransition(Status.parse(target.status()), Action.MANAGER_SUBMIT);
@@ -103,25 +113,26 @@ public class EvaluationWorkflowService {
         if (manager.summary() == null || manager.summary().isBlank()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MANAGER_SUMMARY_REQUIRED", "上長総評を入力してください");
         }
+        validateSummaryLength(manager.summary());
         List<ScoringRow> scoring = scoringRows(target.id(), target.managerEvaluationId());
-        if (scoring.isEmpty()) throw invalidState();
+        if (scoring.size() != 6) throw invalidState();
         for (ScoringRow row : scoring) {
-            if (row.selfLevel() != row.managerLevel() && (row.comment() == null || row.comment().isBlank())) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "MANAGER_DIFFERENCE_REASON_REQUIRED",
-                        "自己評価と異なる項目には差分理由を入力してください");
+            if (row.comment() == null || row.comment().isBlank()) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "MANAGER_COMMENT_REQUIRED",
+                        "提出には各評価軸のコメントが必要です");
             }
         }
-        EvaluationScoring.ScoreResult score = EvaluationScoring.calculate(scoring.stream()
-                .map(row -> new EvaluationScoring.WeightedLevel(row.managerLevel(), row.weight())).toList(),
-                target.gradeBoundariesJson());
+        List<EvaluationRank> ranks = scoring.stream().map(ScoringRow::rank).toList();
+        EvaluationRank overall = EvaluationRank.overall(ranks);
+        BigDecimal score = ranks.stream().map(rank -> new BigDecimal(rank.score())).reduce(BigDecimal.ZERO,
+                BigDecimal::add).divide(BigDecimal.valueOf(ranks.size()), 2, RoundingMode.HALF_UP);
         Instant now = Instant.now();
         jdbc.sql("""
                 UPDATE manager_evaluations SET status='SUBMITTED',weighted_score=:score,grade=:grade,
                   submitted_at=:now,version=version+1 WHERE id=:id AND status='DRAFT'
-                """).param("score", score.score()).param("grade", score.grade()).param("now", Timestamp.from(now))
+                """).param("score", score).param("grade", overall.name()).param("now", Timestamp.from(now))
                 .param("id", target.managerEvaluationId()).update();
         long nextVersion = updateTarget(target, next, target.managerEvaluationId(), version, false, null, null);
-        long actorId = accountId(actorAccountPublicId);
         recordEvent(target, target.managerEvaluationId(), actorId, "MANAGER_SUBMIT", next, null, null, traceId);
         notifications.notifyExecutives("EXECUTIVE_REVIEW", "上長評価の最終承認をお願いします",
                 target.employeeName() + "さんの上長評価が提出されました。", "/executive/evaluations/" + target.publicId(),
@@ -241,20 +252,19 @@ public class EvaluationWorkflowService {
                 .param("employeePublicId", employeePublicId).query(this::mapTarget).optional()
                 .orElseThrow(() -> notFound("評価対象が見つかりません"));
         if (!"FINALIZED".equals(target.status())) {
-            return new FinalResult(target.status(), null, null, null, List.of());
+            throw notFound("確定した評価結果が見つかりません");
         }
         ManagerEvaluation manager = managerEvaluationRequired(target);
         List<FinalDetail> details = jdbc.sql("""
-                SELECT c.axis_code,c.display_name,s.level self_level,m.level manager_level,m.comment
+                SELECT c.axis_code,c.display_name,m.level manager_level,m.comment
                 FROM evaluation_criteria c JOIN evaluation_periods p ON p.criteria_version_id=c.criteria_version_id
                 JOIN evaluation_targets t ON t.period_id=p.id
-                JOIN self_evaluation_details s ON s.target_id=t.id AND s.axis_code=c.axis_code
                 JOIN manager_evaluation_details m ON m.manager_evaluation_id=:managerId AND m.axis_code=c.axis_code
                 WHERE t.id=:targetId ORDER BY c.sort_order
                 """).param("managerId", manager.id()).param("targetId", target.id())
                 .query((rs, row) -> new FinalDetail(rs.getString("axis_code"), rs.getString("display_name"),
-                        rs.getInt("self_level"), rs.getInt("manager_level"), rs.getString("comment"))).list();
-        return new FinalResult(target.status(), target.finalScore(), target.finalGrade(), manager.summary(), details);
+                        EvaluationRank.fromLevel(rs.getInt("manager_level")).name(), rs.getString("comment"))).list();
+        return new FinalResult(target.status(), target.finalGrade(), manager.summary(), details, target.finalizedAt());
     }
 
     private ManagerEvaluationResponse managerResponse(Target target) {
@@ -299,7 +309,7 @@ public class EvaluationWorkflowService {
                     ManagerValue value = managerValues.get(rs.getString("axis_code"));
                     return new ComparisonDetail(rs.getString("axis_code"), rs.getString("display_name"),
                             rs.getString("description"), (Integer) rs.getObject("self_level"), rs.getString("evidence"),
-                            value == null ? null : value.level(), value == null ? null : value.comment());
+                            value == null ? null : value.rank(), value == null ? null : value.comment());
                 }).list();
     }
 
@@ -307,22 +317,25 @@ public class EvaluationWorkflowService {
         Map<String, ManagerValue> values = new LinkedHashMap<>();
         jdbc.sql("SELECT axis_code,level,comment FROM manager_evaluation_details WHERE manager_evaluation_id=:id")
                 .param("id", managerEvaluationId).query((rs, row) -> {
-                    values.put(rs.getString("axis_code"), new ManagerValue(rs.getInt("level"), rs.getString("comment")));
+                    values.put(rs.getString("axis_code"), new ManagerValue(
+                            EvaluationRank.fromLevel(rs.getInt("level")).name(), rs.getString("comment")));
                     return 1;
                 }).list();
         return values;
     }
 
-    private long createManagerEvaluation(long targetId, String summary) {
+    private long createManagerEvaluation(long targetId, long employeeId, String summary) {
+        long profileStatusSnapshotId = profileStatusService.recalculate(employeeId).id();
         int revision = jdbc.sql("SELECT COALESCE(MAX(revision_no),0)+1 FROM manager_evaluations WHERE target_id=:targetId")
                 .param("targetId", targetId).query(Integer.class).single();
         String publicId = PublicIdGenerator.next();
         try {
             jdbc.sql("""
-                    INSERT INTO manager_evaluations(public_id,target_id,revision_no,status,summary,version)
-                    VALUES (:publicId,:targetId,:revision,'DRAFT',:summary,0)
+                    INSERT INTO manager_evaluations(public_id,target_id,revision_no,status,summary,
+                      profile_status_snapshot_id,version)
+                    VALUES (:publicId,:targetId,:revision,'DRAFT',:summary,:snapshotId,0)
                     """).param("publicId", publicId).param("targetId", targetId).param("revision", revision)
-                    .param("summary", stripOrNull(summary)).update();
+                    .param("summary", stripOrNull(summary)).param("snapshotId", profileStatusSnapshotId).update();
         } catch (DuplicateKeyException exception) {
             throw conflict();
         }
@@ -344,7 +357,8 @@ public class EvaluationWorkflowService {
                 INSERT INTO manager_evaluation_details(manager_evaluation_id,axis_code,level,comment)
                 VALUES (:id,:axisCode,:level,:comment)
                 """).param("id", managerEvaluationId).param("axisCode", detail.axisCode())
-                .param("level", detail.level()).param("comment", stripOrNull(detail.comment())).update());
+                .param("level", EvaluationRank.fromCode(detail.rank()).level())
+                .param("comment", stripOrNull(detail.comment())).update());
     }
 
     private void validateDetails(long targetId, List<ManagerDetailInput> details) {
@@ -359,9 +373,7 @@ public class EvaluationWorkflowService {
             throw new ApiException(HttpStatus.BAD_REQUEST, "MANAGER_AXES_INVALID", "すべての評価項目を重複なく指定してください");
         }
         for (ManagerDetailInput detail : details) {
-            if (detail.level() < 1 || detail.level() > 5) {
-                throw new ApiException(HttpStatus.BAD_REQUEST, "MANAGER_LEVEL_INVALID", "上長評価は1～5で指定してください");
-            }
+            EvaluationRank.fromCode(detail.rank());
             if (detail.comment() != null && detail.comment().length() > 1500) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "MANAGER_COMMENT_TOO_LONG", "項目コメントは1500文字以内で入力してください");
             }
@@ -370,21 +382,20 @@ public class EvaluationWorkflowService {
 
     private List<ScoringRow> scoringRows(long targetId, long managerEvaluationId) {
         return jdbc.sql("""
-                SELECT s.level self_level,m.level manager_level,m.comment,c.weight
+                SELECT m.level manager_level,m.comment
                 FROM manager_evaluation_details m JOIN evaluation_targets t ON t.id=:targetId
-                JOIN self_evaluation_details s ON s.target_id=t.id AND s.axis_code=m.axis_code
                 JOIN evaluation_periods p ON p.id=t.period_id
                 JOIN evaluation_criteria c ON c.criteria_version_id=p.criteria_version_id AND c.axis_code=m.axis_code
-                WHERE m.manager_evaluation_id=:managerId
+                WHERE m.manager_evaluation_id=:managerId ORDER BY c.sort_order
                 """).param("targetId", targetId).param("managerId", managerEvaluationId)
-                .query((rs, row) -> new ScoringRow(rs.getInt("self_level"), rs.getInt("manager_level"),
-                        rs.getString("comment"), rs.getBigDecimal("weight"))).list();
+                .query((rs, row) -> new ScoringRow(EvaluationRank.fromLevel(rs.getInt("manager_level")),
+                        rs.getString("comment"))).list();
     }
 
     private long copyCurrentToDraft(Target target, String expectedStatus) {
         ManagerEvaluation current = managerEvaluationRequired(target);
         if (!expectedStatus.equals(current.status())) throw invalidState();
-        long draftId = createManagerEvaluation(target.id(), current.summary());
+        long draftId = createManagerEvaluation(target.id(), target.employeeId(), current.summary());
         jdbc.sql("""
                 INSERT INTO manager_evaluation_details(manager_evaluation_id,axis_code,level,comment)
                 SELECT :draftId,axis_code,level,comment FROM manager_evaluation_details WHERE manager_evaluation_id=:currentId
@@ -428,10 +439,16 @@ public class EvaluationWorkflowService {
     }
 
     private Target managerTarget(String evaluatorEmployeePublicId, String targetPublicId) {
-        return jdbc.sql(targetSelect() + " WHERE t.public_id=:targetPublicId AND t.evaluator_employee_id="
-                        + "(SELECT id FROM employees WHERE public_id=:employeePublicId)")
-                .param("targetPublicId", targetPublicId).param("employeePublicId", evaluatorEmployeePublicId)
-                .query(this::mapTarget).optional().orElseThrow(() -> notFound("担当評価が見つかりません"));
+        Target target = target(targetPublicId);
+        long evaluatorId = jdbc.sql("SELECT id FROM employees WHERE public_id=:employeePublicId")
+                .param("employeePublicId", evaluatorEmployeePublicId).query(Long.class).optional()
+                .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "MANAGER_ASSIGNMENT_REQUIRED",
+                        "直属部下の評価だけを操作できます"));
+        if (target.evaluatorId() != evaluatorId) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "MANAGER_ASSIGNMENT_REQUIRED",
+                    "直属部下の評価だけを操作できます");
+        }
+        return target;
     }
 
     private Target target(String targetPublicId) {
@@ -443,12 +460,12 @@ public class EvaluationWorkflowService {
     private String targetSelect() {
         return """
                 SELECT t.id,t.public_id,t.status,t.version,t.employee_id,t.evaluator_employee_id,
-                  t.current_manager_evaluation_id,t.final_score,t.final_grade,e.public_id employee_public_id,
+                  t.current_manager_evaluation_id,t.final_score,t.final_grade,t.finalized_at,
+                  e.public_id employee_public_id,
                   CONCAT(e.last_name,' ',e.first_name) employee_name,d.name department_name,p.name period_name,
-                  p.manager_deadline,CAST(cv.grade_boundaries_json AS VARCHAR) grade_boundaries_json
+                  p.manager_deadline
                 FROM evaluation_targets t JOIN employees e ON e.id=t.employee_id
                 LEFT JOIN departments d ON d.id=e.department_id JOIN evaluation_periods p ON p.id=t.period_id
-                JOIN evaluation_criteria_versions cv ON cv.id=p.criteria_version_id
                 """;
     }
 
@@ -459,7 +476,8 @@ public class EvaluationWorkflowService {
                 (Long) rs.getObject("current_manager_evaluation_id"), rs.getBigDecimal("final_score"),
                 rs.getString("final_grade"), rs.getString("employee_public_id"), rs.getString("employee_name"),
                 rs.getString("department_name"), rs.getString("period_name"),
-                deadline != null && deadline.toInstant().isBefore(Instant.now()), rs.getString("grade_boundaries_json"));
+                deadline != null && deadline.toInstant().isBefore(Instant.now()),
+                rs.getTimestamp("finalized_at") == null ? null : rs.getTimestamp("finalized_at").toInstant());
     }
 
     private ManagerEvaluation managerEvaluationRequired(Target target) {
@@ -485,10 +503,18 @@ public class EvaluationWorkflowService {
                 .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "EXECUTIVE_REQUIRED", "経営者権限が必要です"));
     }
 
-    private long accountId(String accountPublicId) {
-        return jdbc.sql("SELECT id FROM accounts WHERE public_id=:publicId AND status='ACTIVE'")
-                .param("publicId", accountPublicId).query(Long.class).optional()
-                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "ACCOUNT_INVALID", "有効なアカウントが必要です"));
+    private long requireManager(String accountPublicId, String employeePublicId) {
+        return jdbc.sql("""
+                SELECT a.id FROM accounts a JOIN employees e ON e.id=a.employee_id
+                JOIN permission_grants g ON g.account_id=a.id AND g.revoked_at IS NULL
+                JOIN roles r ON r.id=g.role_id WHERE a.public_id=:accountPublicId AND a.status='ACTIVE'
+                  AND e.public_id=:employeePublicId AND r.code='OFFICER' AND r.status='ACTIVE'
+                  AND g.scope_type='SUBORDINATES' AND g.valid_from<=CURRENT_TIMESTAMP
+                  AND (g.valid_to IS NULL OR g.valid_to>CURRENT_TIMESTAMP)
+                """).param("accountPublicId", accountPublicId).param("employeePublicId", employeePublicId)
+                .query(Long.class).optional()
+                .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "MANAGER_SCOPE_REQUIRED",
+                        "上長評価権限が必要です"));
     }
 
     private static boolean isPast(Timestamp deadline) {
@@ -497,6 +523,13 @@ public class EvaluationWorkflowService {
 
     private void requireVersion(Target target, long version) {
         if (target.version() != version) throw conflict();
+    }
+
+    private static void validateSummaryLength(String summary) {
+        if (summary != null && summary.length() > 3000) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "MANAGER_SUMMARY_TOO_LONG",
+                    "上長総評は3000文字以内で入力してください");
+        }
     }
 
     private static void requireReason(String reason) {
@@ -530,18 +563,18 @@ public class EvaluationWorkflowService {
 
     private record Target(long id, String publicId, String status, long version, long employeeId, long evaluatorId,
             Long managerEvaluationId, BigDecimal finalScore, String finalGrade, String employeePublicId,
-            String employeeName, String departmentName, String periodName, boolean late, String gradeBoundariesJson) {
+            String employeeName, String departmentName, String periodName, boolean late, Instant finalizedAt) {
     }
     private record ManagerEvaluation(long id, String status, String summary, BigDecimal score, String grade) {
     }
-    private record ManagerValue(int level, String comment) {
+    private record ManagerValue(String rank, String comment) {
     }
-    private record ScoringRow(int selfLevel, int managerLevel, String comment, BigDecimal weight) {
+    private record ScoringRow(EvaluationRank rank, String comment) {
     }
 
     public record ManagerSaveRequest(long version, List<ManagerDetailInput> details, String summary) {
     }
-    public record ManagerDetailInput(String axisCode, int level, String comment) {
+    public record ManagerDetailInput(String axisCode, String rank, String comment) {
     }
     public record ManagerListItem(String publicId, String employeeName, String departmentName, String periodName,
             String status, long version, boolean late) {
@@ -551,7 +584,7 @@ public class EvaluationWorkflowService {
             BigDecimal score, String grade, List<ComparisonDetail> details) {
     }
     public record ComparisonDetail(String axisCode, String displayName, String description, Integer selfLevel,
-            String selfEvidence, Integer managerLevel, String managerComment) {
+            String selfEvidence, String managerRank, String managerComment) {
     }
     public record DashboardCounts(int total, int pending, int finalized, int overdue) {
     }
@@ -571,9 +604,9 @@ public class EvaluationWorkflowService {
     public record WorkflowEvent(String action, String fromStatus, String toStatus, String reason, String comment,
             boolean late, String deadlineType, Instant occurredAt) {
     }
-    public record FinalResult(String status, BigDecimal finalScore, String finalGrade, String summary,
-            List<FinalDetail> details) {
+    public record FinalResult(String status, String finalRank, String summary,
+            List<FinalDetail> details, Instant finalizedAt) {
     }
-    public record FinalDetail(String axisCode, String displayName, int selfLevel, int managerLevel, String comment) {
+    public record FinalDetail(String axisCode, String displayName, String managerRank, String comment) {
     }
 }

@@ -3,8 +3,6 @@ package com.query.insight.evaluation;
 import com.query.insight.common.TraceIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -33,13 +31,14 @@ public class ManagerEvaluationController {
 
     @GetMapping
     List<EvaluationWorkflowService.ManagerListItem> list(@AuthenticationPrincipal Jwt jwt) {
-        return service.managerList(jwt.getClaimAsString("employeePublicId"));
+        return service.managerList(jwt.getClaimAsString("accountPublicId"), jwt.getClaimAsString("employeePublicId"));
     }
 
     @GetMapping("/{targetPublicId}")
     EvaluationWorkflowService.ManagerEvaluationResponse detail(@AuthenticationPrincipal Jwt jwt,
             @PathVariable String targetPublicId) {
-        return service.managerDetail(jwt.getClaimAsString("employeePublicId"), targetPublicId);
+        return service.managerDetail(jwt.getClaimAsString("accountPublicId"),
+                jwt.getClaimAsString("employeePublicId"), targetPublicId);
     }
 
     @PutMapping("/{targetPublicId}")
@@ -79,10 +78,10 @@ public class ManagerEvaluationController {
         }
     }
 
-    public record Detail(@NotBlank String axisCode, @Min(1) @Max(5) int level,
+    public record Detail(@NotBlank String axisCode, @NotBlank String rank,
             @Size(max = 1500) String comment) {
         EvaluationWorkflowService.ManagerDetailInput toService() {
-            return new EvaluationWorkflowService.ManagerDetailInput(axisCode, level, comment == null ? "" : comment);
+            return new EvaluationWorkflowService.ManagerDetailInput(axisCode, rank, comment);
         }
     }
 

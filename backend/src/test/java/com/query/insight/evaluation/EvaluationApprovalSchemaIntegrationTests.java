@@ -49,7 +49,27 @@ class EvaluationApprovalSchemaIntegrationTests {
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
+    @Test
+    void rankScoresCanPersistOneHundredWithoutLosingTwoDecimalPlaces() {
+        assertThat(decimalShape("manager_evaluations", "weighted_score"))
+                .isEqualTo(new DecimalShape(5, 2));
+        assertThat(decimalShape("evaluation_targets", "final_score"))
+                .isEqualTo(new DecimalShape(5, 2));
+    }
+
+    private DecimalShape decimalShape(String table, String column) {
+        return jdbc.sql("""
+                SELECT numeric_precision,numeric_scale FROM information_schema.columns
+                WHERE table_name=:tableName AND column_name=:columnName
+                """).param("tableName", table).param("columnName", column)
+                .query((rs, row) -> new DecimalShape(rs.getInt("numeric_precision"), rs.getInt("numeric_scale")))
+                .single();
+    }
+
     private int count(String table) {
         return jdbc.sql("SELECT COUNT(*) FROM " + table).query(Integer.class).single();
+    }
+
+    private record DecimalShape(int precision, int scale) {
     }
 }
