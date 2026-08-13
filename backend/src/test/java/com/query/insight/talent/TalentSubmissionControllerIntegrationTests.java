@@ -40,7 +40,7 @@ class TalentSubmissionControllerIntegrationTests {
                 """.formatted(masterPublicId);
 
         String created = mvc.perform(post("/api/v1/talent-submissions/SKILL")
-                        .with(employeeJwt("QITEST", "EMPLOYEE"))
+                        .with(employeeJwt("QITEST", "GENERAL"))
                         .contentType(MediaType.APPLICATION_JSON).content(createBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("DRAFT"))
@@ -49,7 +49,7 @@ class TalentSubmissionControllerIntegrationTests {
         String publicId = json.readTree(created).path("publicId").asText();
 
         mvc.perform(put("/api/v1/talent-submissions/{id}", publicId)
-                        .with(employeeJwt("QITEST", "EMPLOYEE"))
+                        .with(employeeJwt("QITEST", "GENERAL"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(createBody.replace("\"level\":3", "\"level\":4")
                                 .replace("{\"payload\":", "{\"version\":0,\"payload\":")))
@@ -58,12 +58,12 @@ class TalentSubmissionControllerIntegrationTests {
                 .andExpect(jsonPath("$.version").value(1));
 
         mvc.perform(get("/api/v1/talent-submissions/me").param("type", "SKILL")
-                        .with(employeeJwt("QITEST", "EMPLOYEE")))
+                        .with(employeeJwt("QITEST", "GENERAL")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.publicId == '%s')]", publicId).exists());
 
         mvc.perform(post("/api/v1/talent-submissions/{id}/submit", publicId)
-                        .with(employeeJwt("QITEST", "EMPLOYEE"))
+                        .with(employeeJwt("QITEST", "GENERAL"))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"version\":1}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("SUBMITTED"))
@@ -73,7 +73,7 @@ class TalentSubmissionControllerIntegrationTests {
     @Test
     void rejectsMissingVersionAndHidesAnotherEmployeesSubmission() throws Exception {
         String created = mvc.perform(post("/api/v1/talent-submissions/CAREER")
-                        .with(employeeJwt("QITEST", "EMPLOYEE"))
+                        .with(employeeJwt("QITEST", "GENERAL"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"payload":{"projectName":"API所有者検証","industry":"IT","roleName":"担当",
@@ -84,13 +84,13 @@ class TalentSubmissionControllerIntegrationTests {
         String publicId = json.readTree(created).path("publicId").asText();
 
         mvc.perform(post("/api/v1/talent-submissions/{id}/submit", publicId)
-                        .with(employeeJwt("QITEST", "EMPLOYEE"))
+                        .with(employeeJwt("QITEST", "GENERAL"))
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
 
         mvc.perform(put("/api/v1/talent-submissions/{id}", publicId)
-                        .with(employeeJwt("QI0003", "EMPLOYEE"))
+                        .with(employeeJwt("QI0003", "GENERAL"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"version":0,"payload":{"projectName":"API所有者検証","industry":"IT",

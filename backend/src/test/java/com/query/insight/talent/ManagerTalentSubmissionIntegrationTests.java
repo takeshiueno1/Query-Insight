@@ -258,8 +258,9 @@ class ManagerTalentSubmissionIntegrationTests {
     private org.springframework.test.web.servlet.request.RequestPostProcessor managerJwt() {
         Actor manager = actor("QI0002");
         return jwt().jwt(token -> token.claim("accountPublicId", manager.accountPublicId())
-                        .claim("employeePublicId", manager.employeePublicId()).claim("roles", List.of("MANAGER")))
-                .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_MANAGER"));
+                        .claim("employeePublicId", manager.employeePublicId()).claim("roles", List.of("OFFICER"))
+                        .claim("scopes", List.of("SUBORDINATES")))
+                .authorities(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_OFFICER"));
     }
 
     private record Actor(String employeePublicId, String accountPublicId) {

@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/executive/evaluations")
-@PreAuthorize("hasRole('EXECUTIVE')")
+@PreAuthorize("hasRole('OFFICER') and principal.claims['scopes'].contains('ALL')")
 public class ExecutiveEvaluationController {
     private final EvaluationWorkflowService service;
 

@@ -64,21 +64,28 @@ public class TalentProfileService {
     private void requireAccessible(String targetPublicId, String actorPublicId,
             String actorAccountPublicId, Set<String> roles) {
         boolean self = targetPublicId.equals(actorPublicId);
-        boolean manager = roles.contains("MANAGER") && jdbc.sql("""
+        boolean manager = actorAccountPublicId != null && roles.contains("OFFICER")
+                && hasOfficerGrant(actorAccountPublicId, "SUBORDINATES") && jdbc.sql("""
                 SELECT COUNT(*) FROM employees e JOIN employees m ON m.id=e.manager_employee_id
                 WHERE e.public_id=:target AND m.public_id=:actor AND e.employment_status<>'RETIRED'
                 """).param("target", targetPublicId).param("actor", actorPublicId)
                 .query(Integer.class).single() > 0;
-        boolean executive = actorAccountPublicId != null && roles.contains("EXECUTIVE") && jdbc.sql("""
-                SELECT COUNT(*) FROM accounts a JOIN permission_grants g ON g.account_id=a.id
-                JOIN roles r ON r.id=g.role_id AND r.code='EXECUTIVE' AND r.status='ACTIVE'
-                WHERE a.public_id=:account AND a.status='ACTIVE' AND g.scope_type='ALL'
-                  AND g.revoked_at IS NULL AND g.valid_from<=CURRENT_TIMESTAMP
-                  AND (g.valid_to IS NULL OR g.valid_to>CURRENT_TIMESTAMP)
-                """).param("account", actorAccountPublicId).query(Integer.class).single() > 0;
+        boolean executive = actorAccountPublicId != null && roles.contains("OFFICER")
+                && hasOfficerGrant(actorAccountPublicId, "ALL");
         if (!self && !manager && !executive) {
             throw new ApiException(HttpStatus.NOT_FOUND, "EMPLOYEE_NOT_FOUND", "対象の社員が見つかりません");
         }
+    }
+
+    private boolean hasOfficerGrant(String accountPublicId, String scope) {
+        return jdbc.sql("""
+                SELECT COUNT(*) FROM accounts a JOIN permission_grants g ON g.account_id=a.id
+                JOIN roles r ON r.id=g.role_id AND r.code='OFFICER' AND r.status='ACTIVE'
+                WHERE a.public_id=:account AND a.status='ACTIVE' AND g.scope_type=:scope
+                  AND g.revoked_at IS NULL AND g.valid_from<=CURRENT_TIMESTAMP
+                  AND (g.valid_to IS NULL OR g.valid_to>CURRENT_TIMESTAMP)
+                """).param("account", accountPublicId).param("scope", scope)
+                .query(Integer.class).single() > 0;
     }
 
     public record TalentProfile(List<Skill> skills, List<Knowledge> knowledge, List<Career> careers,

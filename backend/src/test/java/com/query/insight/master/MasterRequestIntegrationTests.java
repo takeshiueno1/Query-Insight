@@ -22,16 +22,16 @@ class MasterRequestIntegrationTests {
     private final ObjectMapper json = new ObjectMapper();
 
     @Test
-    void employeeRequestsMissingSkillAndExecutiveApprovesIt() throws Exception {
+    void employeeRequestsMissingSkillAndAdministratorApprovesIt() throws Exception {
         Actor employee = actor("QITEST");
-        Actor executive = actor("QI0039");
+        Actor administrator = actor("QI0001");
         var request = service.create(employee.accountPublicId(), MasterRequestService.Type.SKILL,
                 json.readTree("""
                         {"code":"NEW_CLOUD_ARCH","name":"クラウド設計検証","category":"技術",
                         "description":"検証用の追加スキル"}
                         """), traceId(1));
 
-        var approved = service.approve(executive.accountPublicId(), Set.of("EXECUTIVE"),
+        var approved = service.approve(administrator.accountPublicId(), Set.of("ADMIN"),
                 request.publicId(), request.version(), traceId(2));
 
         assertThat(approved.status()).isEqualTo(MasterRequestService.Status.APPROVED);
@@ -40,14 +40,14 @@ class MasterRequestIntegrationTests {
         assertThat(jdbc.sql("SELECT COUNT(*) FROM notifications WHERE dedupe_key=:key")
                 .param("key", "master-request:" + request.publicId() + ":approved")
                 .query(Integer.class).single()).isEqualTo(1);
-        assertThatThrownBy(() -> service.approve(executive.accountPublicId(), Set.of("EXECUTIVE"),
+        assertThatThrownBy(() -> service.approve(administrator.accountPublicId(), Set.of("ADMIN"),
                 request.publicId(), request.version(), traceId(3)))
                 .isInstanceOfSatisfying(ApiException.class,
                         error -> assertThat(error.status().value()).isEqualTo(409));
     }
 
     @Test
-    void executiveWithoutAllScopeAndManagerCannotReview() throws Exception {
+    void officersCannotReviewMasterRequests() throws Exception {
         Actor employee = actor("QITEST");
         Actor executive = actor("QI0039");
         Actor manager = actor("QI0002");
@@ -56,21 +56,11 @@ class MasterRequestIntegrationTests {
                         {"code":"QI_ARCH_2026","name":"Query Insight Architect",
                         "issuer":"Query Insight Association"}
                         """), traceId(4));
-        long grantId = jdbc.sql("""
-                SELECT g.id FROM permission_grants g JOIN roles r ON r.id=g.role_id
-                JOIN accounts a ON a.id=g.account_id WHERE a.public_id=:account AND r.code='EXECUTIVE'
-                  AND g.revoked_at IS NULL
-                """).param("account", executive.accountPublicId()).query(Long.class).single();
-        try {
-            jdbc.sql("UPDATE permission_grants SET scope_type='SELF' WHERE id=:id").param("id", grantId).update();
-            assertThatThrownBy(() -> service.adminList(executive.accountPublicId(), Set.of("EXECUTIVE"),
-                    MasterRequestService.Status.SUBMITTED))
-                    .isInstanceOfSatisfying(ApiException.class,
-                            error -> assertThat(error.status().value()).isEqualTo(403));
-        } finally {
-            jdbc.sql("UPDATE permission_grants SET scope_type='ALL' WHERE id=:id").param("id", grantId).update();
-        }
-        assertThatThrownBy(() -> service.approve(manager.accountPublicId(), Set.of("MANAGER"),
+        assertThatThrownBy(() -> service.adminList(executive.accountPublicId(), Set.of("OFFICER"),
+                MasterRequestService.Status.SUBMITTED))
+                .isInstanceOfSatisfying(ApiException.class,
+                        error -> assertThat(error.status().value()).isEqualTo(403));
+        assertThatThrownBy(() -> service.approve(manager.accountPublicId(), Set.of("OFFICER"),
                 request.publicId(), request.version(), traceId(5)))
                 .isInstanceOfSatisfying(ApiException.class,
                         error -> assertThat(error.status().value()).isEqualTo(403));
@@ -79,14 +69,14 @@ class MasterRequestIntegrationTests {
     @Test
     void duplicateNormalizedCodeAndNameReturn409WithoutSecondMaster() throws Exception {
         Actor employee = actor("QITEST");
-        Actor executive = actor("QI0039");
+        Actor administrator = actor("QI0001");
         String existingName = jdbc.sql("SELECT name FROM skill_masters WHERE code='JAVA'")
                 .query(String.class).single();
         var codeDuplicate = service.create(employee.accountPublicId(), MasterRequestService.Type.SKILL,
                 json.readTree("""
                         {"code":"java","name":"別名Java","category":"技術","description":"重複"}
                         """), traceId(6));
-        assertThatThrownBy(() -> service.approve(executive.accountPublicId(), Set.of("EXECUTIVE"),
+        assertThatThrownBy(() -> service.approve(administrator.accountPublicId(), Set.of("ADMIN"),
                 codeDuplicate.publicId(), 0, traceId(7)))
                 .isInstanceOfSatisfying(ApiException.class,
                         error -> assertThat(error.status().value()).isEqualTo(409));
@@ -95,7 +85,7 @@ class MasterRequestIntegrationTests {
                 json.readTree("""
                         {"code":"UNIQUE_TEST_CODE","name":"  %s  ","category":"技術","description":"重複"}
                         """.formatted(existingName.toLowerCase())), traceId(8));
-        assertThatThrownBy(() -> service.approve(executive.accountPublicId(), Set.of("EXECUTIVE"),
+        assertThatThrownBy(() -> service.approve(administrator.accountPublicId(), Set.of("ADMIN"),
                 nameDuplicate.publicId(), 0, traceId(9)))
                 .isInstanceOfSatisfying(ApiException.class,
                         error -> assertThat(error.status().value()).isEqualTo(409));

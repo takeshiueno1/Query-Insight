@@ -478,7 +478,7 @@ public class EvaluationWorkflowService {
         return jdbc.sql("""
                 SELECT a.id FROM accounts a JOIN permission_grants g ON g.account_id=a.id AND g.revoked_at IS NULL
                 JOIN roles r ON r.id=g.role_id WHERE a.public_id=:publicId AND a.status='ACTIVE'
-                  AND r.code='EXECUTIVE' AND r.status='ACTIVE' AND g.scope_type='ALL'
+                  AND r.code='OFFICER' AND r.status='ACTIVE' AND g.scope_type='ALL'
                   AND g.valid_from<=CURRENT_TIMESTAMP
                   AND (g.valid_to IS NULL OR g.valid_to>CURRENT_TIMESTAMP)
                 """).param("publicId", accountPublicId).query(Long.class).optional()

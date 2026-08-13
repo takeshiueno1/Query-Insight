@@ -122,9 +122,10 @@ public class TalentAttachmentService {
                 .optional().orElseThrow(TalentAttachmentService::notFound);
         if (!"CLEAN".equals(attachment.scanStatus()) || attachment.content() == null) throw notFound();
         boolean owner = attachment.ownerPublicId().equals(employeePublicId);
-        boolean currentManager = roles.contains("MANAGER") && attachment.managerEmployeeId() != null
+        boolean currentManager = roles.contains("OFFICER") && hasOfficerGrant(accountPublicId, "SUBORDINATES")
+                && attachment.managerEmployeeId() != null
                 && attachment.managerEmployeeId().longValue() == employeeId(employeePublicId);
-        boolean executiveAll = roles.contains("EXECUTIVE") && hasExecutiveAllGrant(accountPublicId);
+        boolean executiveAll = roles.contains("OFFICER") && hasOfficerGrant(accountPublicId, "ALL");
         if (!owner && !currentManager && !executiveAll) throw notFound();
         return new Download(attachment.fileName(), attachment.contentType(), attachment.content());
     }
@@ -266,14 +267,15 @@ public class TalentAttachmentService {
                 .param("publicId", publicId).query(Long.class).optional().orElse(-1L);
     }
 
-    private boolean hasExecutiveAllGrant(String accountPublicId) {
+    private boolean hasOfficerGrant(String accountPublicId, String scope) {
         return jdbc.sql("""
                 SELECT COUNT(*) FROM permission_grants g
                 JOIN accounts a ON a.id=g.account_id JOIN roles r ON r.id=g.role_id
-                WHERE a.public_id=:accountPublicId AND a.status='ACTIVE' AND r.code='EXECUTIVE'
-                  AND r.status='ACTIVE' AND g.scope_type='ALL' AND g.revoked_at IS NULL
+                WHERE a.public_id=:accountPublicId AND a.status='ACTIVE' AND r.code='OFFICER'
+                  AND r.status='ACTIVE' AND g.scope_type=:scope AND g.revoked_at IS NULL
                   AND g.valid_from<=CURRENT_TIMESTAMP AND (g.valid_to IS NULL OR g.valid_to>CURRENT_TIMESTAMP)
-                """).param("accountPublicId", accountPublicId).query(Integer.class).single() > 0;
+                """).param("accountPublicId", accountPublicId).param("scope", scope)
+                .query(Integer.class).single() > 0;
     }
 
     private static boolean startsWith(byte[] content, byte[] signature) {

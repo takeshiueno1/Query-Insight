@@ -29,28 +29,28 @@ public class EmployeeController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('MANAGER','SALES','HR','SYSTEM_ADMIN','AUDITOR')")
+    @PreAuthorize("hasAnyRole('OFFICER','ADMIN')")
     EmployeeService.PageResponse<EmployeeService.EmployeeSummary> search(@AuthenticationPrincipal Jwt jwt,
             @RequestParam(required = false) @Size(max = 100) String keyword,
             @RequestParam(required = false) @Size(max = 30) String department,
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
-        return service.search(employeePublicId(jwt), roles(jwt), keyword, department, page, size);
+        return service.search(employeePublicId(jwt), roles(jwt), scopes(jwt), keyword, department, page, size);
     }
 
     @GetMapping("/{publicId}")
     EmployeeService.EmployeeDetail detail(@AuthenticationPrincipal Jwt jwt,
             @PathVariable @Pattern(regexp = "[0-9A-HJKMNP-TV-Z]{26}") String publicId) {
-        return service.findAccessible(publicId, employeePublicId(jwt), roles(jwt));
+        return service.findAccessible(publicId, employeePublicId(jwt), roles(jwt), scopes(jwt));
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('HR','SYSTEM_ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     EmployeeService.EmployeeDetail create(@Valid @RequestBody EmployeeRequest request) {
         return service.create(request.toService());
     }
 
     @PutMapping("/{publicId}")
-    @PreAuthorize("hasAnyRole('HR','SYSTEM_ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     EmployeeService.EmployeeDetail update(
             @PathVariable @Pattern(regexp = "[0-9A-HJKMNP-TV-Z]{26}") String publicId,
             @Valid @RequestBody EmployeeRequest request) {
@@ -58,7 +58,7 @@ public class EmployeeController {
     }
 
     @PostMapping("/{publicId}/deactivate")
-    @PreAuthorize("hasAnyRole('HR','SYSTEM_ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     void deactivate(@PathVariable @Pattern(regexp = "[0-9A-HJKMNP-TV-Z]{26}") String publicId,
             @RequestParam long version) {
         service.deactivate(publicId, version);
@@ -70,6 +70,10 @@ public class EmployeeController {
 
     private static Set<String> roles(Jwt jwt) {
         return Set.copyOf(jwt.getClaimAsStringList("roles"));
+    }
+
+    private static Set<String> scopes(Jwt jwt) {
+        return Set.copyOf(jwt.getClaimAsStringList("scopes"));
     }
 
     public record EmployeeRequest(@NotBlank @Size(max = 30) String employeeNo,

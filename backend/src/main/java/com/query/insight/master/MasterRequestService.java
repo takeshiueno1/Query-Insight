@@ -133,11 +133,10 @@ public class MasterRequestService {
     }
 
     private void requireReviewer(String accountPublicId, Set<String> roles) {
-        if (roles != null && roles.contains("SYSTEM_ADMIN")) return;
-        if (roles == null || !roles.contains("EXECUTIVE")) throw forbidden();
+        if (roles == null || !roles.contains("ADMIN")) throw forbidden();
         int grants = jdbc.sql("""
                 SELECT COUNT(*) FROM accounts a JOIN permission_grants g ON g.account_id=a.id
-                JOIN roles r ON r.id=g.role_id AND r.code='EXECUTIVE' AND r.status='ACTIVE'
+                JOIN roles r ON r.id=g.role_id AND r.code='ADMIN' AND r.status='ACTIVE'
                 WHERE a.public_id=:accountId AND a.status='ACTIVE' AND g.scope_type='ALL'
                   AND g.revoked_at IS NULL AND g.valid_from<=CURRENT_TIMESTAMP
                   AND (g.valid_to IS NULL OR g.valid_to>CURRENT_TIMESTAMP)

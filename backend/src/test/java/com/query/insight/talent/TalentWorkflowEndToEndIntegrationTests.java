@@ -52,7 +52,7 @@ class TalentWorkflowEndToEndIntegrationTests {
         assertThat(attachment.scanStatus()).isEqualTo("CLEAN");
         assertThat(approved.status()).isEqualTo(TalentSubmission.Status.APPROVED);
         assertThat(profiles.findAccessible(employee.employeePublicId(), employee.employeePublicId(),
-                Set.of("EMPLOYEE")).skills()).anySatisfy(skill -> {
+                Set.of("GENERAL")).skills()).anySatisfy(skill -> {
                     assertThat(skill.code()).isEqualTo(master.code());
                     assertThat(skill.level()).isEqualTo(4);
                 });

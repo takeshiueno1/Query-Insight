@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/manager-evaluations")
-@PreAuthorize("hasRole('MANAGER')")
+@PreAuthorize("hasRole('OFFICER') and principal.claims['scopes'].contains('SUBORDINATES')")
 public class ManagerEvaluationController {
     private final EvaluationWorkflowService service;
 

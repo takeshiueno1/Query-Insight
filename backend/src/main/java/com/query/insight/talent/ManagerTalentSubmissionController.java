@@ -21,7 +21,7 @@ import tools.jackson.databind.JsonNode;
 
 @RestController
 @RequestMapping("/api/v1/manager/talent-submissions")
-@PreAuthorize("hasRole('MANAGER')")
+@PreAuthorize("hasRole('OFFICER') and principal.claims['scopes'].contains('SUBORDINATES')")
 public class ManagerTalentSubmissionController {
     private final TalentSubmissionService service;
 

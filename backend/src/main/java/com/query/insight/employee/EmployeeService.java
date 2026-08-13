@@ -21,12 +21,12 @@ public class EmployeeService {
         this.jdbc = jdbc;
     }
 
-    public PageResponse<EmployeeSummary> search(String actorEmployeePublicId, Set<String> roles, String keyword,
-            String department, int page, int size) {
+    public PageResponse<EmployeeSummary> search(String actorEmployeePublicId, Set<String> roles, Set<String> scopes,
+            String keyword, String department, int page, int size) {
         int safePage = Math.max(0, page);
         int safeSize = Math.min(100, Math.max(1, size));
-        boolean all = roles.contains("HR") || roles.contains("SYSTEM_ADMIN") || roles.contains("AUDITOR");
-        boolean manager = roles.contains("MANAGER");
+        boolean all = roles.contains("ADMIN") || roles.contains("OFFICER") && scopes.contains("ALL");
+        boolean manager = roles.contains("OFFICER") && scopes.contains("SUBORDINATES");
         if (!all && !manager) {
             throw forbidden();
         }
@@ -69,11 +69,12 @@ public class EmployeeService {
         return new PageResponse<>(content, safePage, safeSize, total, (int) Math.ceil((double) total / safeSize));
     }
 
-    public EmployeeDetail findAccessible(String targetPublicId, String actorEmployeePublicId, Set<String> roles) {
+    public EmployeeDetail findAccessible(String targetPublicId, String actorEmployeePublicId, Set<String> roles,
+            Set<String> scopes) {
         EmployeeDetail detail = find(targetPublicId);
-        boolean allowed = roles.contains("HR") || roles.contains("SYSTEM_ADMIN") || roles.contains("AUDITOR")
+        boolean allowed = roles.contains("ADMIN") || roles.contains("OFFICER") && scopes.contains("ALL")
                 || targetPublicId.equals(actorEmployeePublicId)
-                || roles.contains("MANAGER") && jdbc.sql("""
+                || roles.contains("OFFICER") && scopes.contains("SUBORDINATES") && jdbc.sql("""
                         SELECT COUNT(*) FROM employees e JOIN employees m ON m.id = e.manager_employee_id
                         WHERE e.public_id = :target AND m.public_id = :actor
                         """).param("target", targetPublicId).param("actor", actorEmployeePublicId)

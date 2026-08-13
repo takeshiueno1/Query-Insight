@@ -28,26 +28,30 @@ class EvaluationApprovalControllerIntegrationTests {
     void exposesRoleProtectedManagerExecutiveAndEmployeeResultApis() throws Exception {
         mvc.perform(get("/api/v1/manager-evaluations").with(jwt()
                 .jwt(jwt -> jwt.claim("accountPublicId", accountPublicId("QI0002"))
-                        .claim("employeePublicId", employeePublicId("QI0002")))
-                .authorities(new SimpleGrantedAuthority("ROLE_MANAGER"))))
+                        .claim("employeePublicId", employeePublicId("QI0002"))
+                        .claim("scopes", java.util.List.of("SUBORDINATES")))
+                .authorities(new SimpleGrantedAuthority("ROLE_OFFICER"))))
                 .andExpect(status().isOk());
 
         mvc.perform(get("/api/v1/executive/evaluations").with(jwt()
                 .jwt(jwt -> jwt.claim("accountPublicId", accountPublicId("QI0039"))
-                        .claim("employeePublicId", employeePublicId("QI0039")))
-                .authorities(new SimpleGrantedAuthority("ROLE_EXECUTIVE"))))
+                        .claim("employeePublicId", employeePublicId("QI0039"))
+                        .claim("scopes", java.util.List.of("ALL")))
+                .authorities(new SimpleGrantedAuthority("ROLE_OFFICER"))))
                 .andExpect(status().isOk());
 
         mvc.perform(get("/api/v1/evaluations/me/final-result").with(jwt()
                 .jwt(jwt -> jwt.claim("accountPublicId", accountPublicId("QITEST"))
-                        .claim("employeePublicId", employeePublicId("QITEST")))
-                .authorities(new SimpleGrantedAuthority("ROLE_EMPLOYEE"))))
+                        .claim("employeePublicId", employeePublicId("QITEST"))
+                        .claim("scopes", java.util.List.of("SELF")))
+                .authorities(new SimpleGrantedAuthority("ROLE_GENERAL"))))
                 .andExpect(status().isOk());
 
         mvc.perform(get("/api/v1/manager-evaluations").with(jwt()
                 .jwt(jwt -> jwt.claim("accountPublicId", accountPublicId("QITEST"))
-                        .claim("employeePublicId", employeePublicId("QITEST")))
-                .authorities(new SimpleGrantedAuthority("ROLE_EMPLOYEE"))))
+                        .claim("employeePublicId", employeePublicId("QITEST"))
+                        .claim("scopes", java.util.List.of("SELF")))
+                .authorities(new SimpleGrantedAuthority("ROLE_GENERAL"))))
                 .andExpect(status().isForbidden());
     }
 
@@ -58,16 +62,28 @@ class EvaluationApprovalControllerIntegrationTests {
                 .query(String.class).single();
         mvc.perform(post("/api/v1/manager-evaluations/{id}/submit", targetPublicId).with(jwt()
                 .jwt(jwt -> jwt.claim("accountPublicId", accountPublicId("QI0002"))
-                        .claim("employeePublicId", employeePublicId("QI0002")))
-                .authorities(new SimpleGrantedAuthority("ROLE_MANAGER")))
+                        .claim("employeePublicId", employeePublicId("QI0002"))
+                        .claim("scopes", java.util.List.of("SUBORDINATES")))
+                .authorities(new SimpleGrantedAuthority("ROLE_OFFICER")))
                 .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(post("/api/v1/executive/evaluations/{id}/approve", targetPublicId).with(jwt()
                 .jwt(jwt -> jwt.claim("accountPublicId", accountPublicId("QI0039"))
-                        .claim("employeePublicId", employeePublicId("QI0039")))
-                .authorities(new SimpleGrantedAuthority("ROLE_EXECUTIVE")))
+                        .claim("employeePublicId", employeePublicId("QI0039"))
+                        .claim("scopes", java.util.List.of("ALL")))
+                .authorities(new SimpleGrantedAuthority("ROLE_OFFICER")))
                 .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void subordinateOfficerCannotUseExecutiveApi() throws Exception {
+        mvc.perform(get("/api/v1/executive/evaluations").with(jwt()
+                .jwt(jwt -> jwt.claim("accountPublicId", accountPublicId("QI0002"))
+                        .claim("employeePublicId", employeePublicId("QI0002"))
+                        .claim("scopes", java.util.List.of("SUBORDINATES")))
+                .authorities(new SimpleGrantedAuthority("ROLE_OFFICER"))))
+                .andExpect(status().isForbidden());
     }
 
     private String employeePublicId(String employeeNo) {

@@ -20,7 +20,7 @@ public class AuditController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('AUDITOR','SYSTEM_ADMIN','HR')")
+    @PreAuthorize("hasRole('ADMIN')")
     List<AuditResponse> list(@RequestParam(required = false) @Size(max = 100) String action) {
         String select = """
                 SELECT l.public_id,l.occurred_at,l.action,l.target_type,l.target_public_id,l.result,

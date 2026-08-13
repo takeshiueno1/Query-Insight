@@ -46,7 +46,7 @@ class TalentAttachmentControllerIntegrationTests {
         var file = new MockMultipartFile("file", "evidence.pdf", "application/pdf", pdf);
 
         String response = mvc.perform(multipart("/api/v1/talent-submissions/{id}/attachments", draft.publicId())
-                        .file(file).param("version", "0").with(employeeJwt("QITEST", "EMPLOYEE")))
+                        .file(file).param("version", "0").with(employeeJwt("QITEST", "GENERAL")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scanStatus").value("CLEAN"))
                 .andExpect(jsonPath("$.submissionVersion").value(1))
@@ -54,7 +54,7 @@ class TalentAttachmentControllerIntegrationTests {
         String attachmentId = new tools.jackson.databind.ObjectMapper().readTree(response).path("publicId").asText();
 
         mvc.perform(get("/api/v1/talent-attachments/{id}", attachmentId)
-                        .with(employeeJwt("QITEST", "EMPLOYEE")))
+                        .with(employeeJwt("QITEST", "GENERAL")))
                 .andExpect(status().isOk())
                 .andExpect(content().bytes(pdf))
                 .andExpect(header().string("Content-Type", "application/pdf"))
@@ -73,11 +73,11 @@ class TalentAttachmentControllerIntegrationTests {
                 .andExpect(status().isUnauthorized());
 
         String attachmentId = mvc.perform(multipart("/api/v1/talent-submissions/{id}/attachments", draft.publicId())
-                        .file(file).param("version", "0").with(employeeJwt("QITEST", "EMPLOYEE")))
+                        .file(file).param("version", "0").with(employeeJwt("QITEST", "GENERAL")))
                 .andReturn().getResponse().getContentAsString();
         attachmentId = new tools.jackson.databind.ObjectMapper().readTree(attachmentId).path("publicId").asText();
         mvc.perform(get("/api/v1/talent-attachments/{id}", attachmentId)
-                        .with(employeeJwt("QI0001", "SYSTEM_ADMIN")))
+                        .with(employeeJwt("QI0001", "ADMIN")))
                 .andExpect(status().isNotFound());
     }
 
@@ -98,7 +98,8 @@ class TalentAttachmentControllerIntegrationTests {
                         + "WHERE e.employee_no=:employeeNo")
                 .param("employeeNo", employeeNo).query(String.class).single();
         return jwt().jwt(token -> token.claim("accountPublicId", accountPublicId)
-                        .claim("employeePublicId", employeePublicId).claim("roles", List.of(role)))
+                        .claim("employeePublicId", employeePublicId).claim("roles", List.of(role))
+                        .claim("scopes", List.of("ADMIN".equals(role) ? "ALL" : "SELF")))
                 .authorities(new SimpleGrantedAuthority("ROLE_" + role));
     }
 }

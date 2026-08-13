@@ -51,13 +51,13 @@ class TalentAttachmentServiceIntegrationTests {
         assertThat(uploaded.scanStatus()).isEqualTo("CLEAN");
         assertThat(uploaded.submissionVersion()).isEqualTo(1);
         assertThat(service.download(accountPublicId("QITEST"), employeePublicId("QITEST"),
-                Set.of("EMPLOYEE"), uploaded.publicId()).content()).isEqualTo(PDF);
+                Set.of("GENERAL"), uploaded.publicId()).content()).isEqualTo(PDF);
         assertThat(service.download(accountPublicId("QI0002"), employeePublicId("QI0002"),
-                Set.of("MANAGER"), uploaded.publicId()).content()).isEqualTo(PDF);
+                Set.of("OFFICER"), uploaded.publicId()).content()).isEqualTo(PDF);
         assertThat(service.download(accountPublicId("QI0039"), employeePublicId("QI0039"),
-                Set.of("EXECUTIVE"), uploaded.publicId()).content()).isEqualTo(PDF);
+                Set.of("OFFICER"), uploaded.publicId()).content()).isEqualTo(PDF);
         assertNotFound(() -> service.download(accountPublicId("QI0001"), employeePublicId("QI0001"),
-                Set.of("SYSTEM_ADMIN"), uploaded.publicId()));
+                Set.of("ADMIN"), uploaded.publicId()));
     }
 
     @Test
@@ -135,7 +135,7 @@ class TalentAttachmentServiceIntegrationTests {
         String attachmentId = jdbc.sql("SELECT public_id FROM talent_attachments WHERE submission_id=:id")
                 .param("id", draft.id()).query(String.class).single();
         assertThat(service.download(accountPublicId("QITEST"), employeePublicId("QITEST"),
-                Set.of("EMPLOYEE"), attachmentId).content()).isEqualTo(PDF);
+                Set.of("GENERAL"), attachmentId).content()).isEqualTo(PDF);
     }
 
     private TalentSubmissionRepository.Row createDraft() {

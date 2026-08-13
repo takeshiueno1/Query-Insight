@@ -20,15 +20,12 @@ class TalentProfileApprovalVisibilityIntegrationTests {
     private JdbcClient jdbc;
 
     @Test
-    void systemAdminAndAuditorCannotReadAnotherEmployeesTalentProfile() {
+    void administratorCannotReadAnotherEmployeesTalentProfile() {
         String target = employee("QITEST");
         String admin = employee("QI0001");
 
         assertThatThrownBy(() -> profiles.findAccessible(target, admin, account("QI0001"),
-                Set.of("SYSTEM_ADMIN"))).isInstanceOfSatisfying(ApiException.class,
-                        error -> assertThat(error.status().value()).isEqualTo(404));
-        assertThatThrownBy(() -> profiles.findAccessible(target, admin, account("QI0001"),
-                Set.of("AUDITOR"))).isInstanceOfSatisfying(ApiException.class,
+                Set.of("ADMIN"))).isInstanceOfSatisfying(ApiException.class,
                         error -> assertThat(error.status().value()).isEqualTo(404));
     }
 
@@ -36,9 +33,9 @@ class TalentProfileApprovalVisibilityIntegrationTests {
     void executiveAllAndCurrentManagerCanReadApprovedProfile() {
         String target = employee("QITEST");
         var executiveProfile = profiles.findAccessible(target, employee("QI0039"), account("QI0039"),
-                Set.of("EXECUTIVE"));
+                Set.of("OFFICER"));
         var managerProfile = profiles.findAccessible(target, employee("QI0002"), account("QI0002"),
-                Set.of("MANAGER"));
+                Set.of("OFFICER"));
 
         assertThat(executiveProfile.skills()).isNotEmpty();
         assertThat(managerProfile.skills()).isNotEmpty();
@@ -50,12 +47,12 @@ class TalentProfileApprovalVisibilityIntegrationTests {
         String executiveAccount = account("QI0039");
         long grantId = jdbc.sql("""
                 SELECT g.id FROM permission_grants g JOIN roles r ON r.id=g.role_id
-                JOIN accounts a ON a.id=g.account_id WHERE a.public_id=:account AND r.code='EXECUTIVE'
+                JOIN accounts a ON a.id=g.account_id WHERE a.public_id=:account AND r.code='OFFICER'
                 """).param("account", executiveAccount).query(Long.class).single();
         try {
             jdbc.sql("UPDATE permission_grants SET scope_type='SELF' WHERE id=:id").param("id", grantId).update();
             assertThatThrownBy(() -> profiles.findAccessible(target, employee("QI0039"), executiveAccount,
-                    Set.of("EXECUTIVE"))).isInstanceOfSatisfying(ApiException.class,
+                    Set.of("OFFICER"))).isInstanceOfSatisfying(ApiException.class,
                             error -> assertThat(error.status().value()).isEqualTo(404));
         } finally {
             jdbc.sql("UPDATE permission_grants SET scope_type='ALL' WHERE id=:id").param("id", grantId).update();

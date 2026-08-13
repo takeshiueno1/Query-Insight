@@ -6,6 +6,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,12 +40,14 @@ public class MasterRequestController {
     }
 
     @GetMapping("/api/v1/admin/master-requests")
+    @PreAuthorize("hasRole('ADMIN')")
     List<MasterRequestService.Row> adminList(@AuthenticationPrincipal Jwt jwt,
             @RequestParam(defaultValue = "SUBMITTED") String status) {
         return service.adminList(account(jwt), roles(jwt), status(status));
     }
 
     @PostMapping("/api/v1/admin/master-requests/{publicId:[0-7][0-9A-HJKMNP-TV-Z]{25}}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
     MasterRequestService.Row approve(@AuthenticationPrincipal Jwt jwt, @PathVariable String publicId,
             @RequestBody JsonNode request, HttpServletRequest servletRequest) {
         requireOnly(request, Set.of("version"));
@@ -52,6 +55,7 @@ public class MasterRequestController {
     }
 
     @PostMapping("/api/v1/admin/master-requests/{publicId:[0-7][0-9A-HJKMNP-TV-Z]{25}}/return")
+    @PreAuthorize("hasRole('ADMIN')")
     MasterRequestService.Row returnRequest(@AuthenticationPrincipal Jwt jwt, @PathVariable String publicId,
             @RequestBody JsonNode request, HttpServletRequest servletRequest) {
         requireOnly(request, Set.of("version", "reason"));

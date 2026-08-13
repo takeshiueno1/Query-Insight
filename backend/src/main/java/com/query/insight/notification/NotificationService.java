@@ -26,7 +26,7 @@ public class NotificationService {
         List<Long> accounts = jdbc.sql("""
                 SELECT DISTINCT a.id FROM accounts a
                 JOIN permission_grants g ON g.account_id=a.id AND g.revoked_at IS NULL
-                JOIN roles r ON r.id=g.role_id AND r.code='EXECUTIVE' AND r.status='ACTIVE'
+                JOIN roles r ON r.id=g.role_id AND r.code='OFFICER' AND r.status='ACTIVE'
                 WHERE a.status='ACTIVE' AND g.scope_type='ALL' AND g.valid_from<=CURRENT_TIMESTAMP
                   AND (g.valid_to IS NULL OR g.valid_to>CURRENT_TIMESTAMP)
                 """).query(Long.class).list();
