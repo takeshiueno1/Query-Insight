@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,8 @@ class ProfileStatusServiceIntegrationTests {
     @Autowired
     private ObjectMapper objectMapper;
     @Autowired
+    private DataSource dataSource;
+    @Autowired
     private TalentSubmissionService submissions;
 
     private ProfileStatusService service;
@@ -43,7 +46,7 @@ class ProfileStatusServiceIntegrationTests {
 
     @BeforeEach
     void setUp() {
-        service = new ProfileStatusService(jdbc, objectMapper,
+        service = new ProfileStatusService(jdbc, objectMapper, dataSource,
                 Clock.fixed(CALCULATED_AT, ZoneOffset.UTC));
         employeeId = jdbc.sql("SELECT id FROM employees WHERE employee_no='QITEST'")
                 .query(Long.class).single();
@@ -136,6 +139,18 @@ class ProfileStatusServiceIntegrationTests {
 
         assertThat(changed.publicId()).isNotEqualTo(first.publicId());
         assertThat(snapshotCount()).isEqualTo(2);
+    }
+
+    @Test
+    void insertConflictPathReturnsTheExistingFingerprintSnapshot() {
+        var existing = service.recalculate(employeeId);
+
+        var recovered = service.insertOrFindConcurrent(employeeId, existing.result(),
+                existing.sourceFingerprint(), CALCULATED_AT.plusSeconds(1));
+
+        assertThat(recovered.publicId()).isEqualTo(existing.publicId());
+        assertThat(recovered.calculatedAt()).isEqualTo(existing.calculatedAt());
+        assertThat(snapshotCount()).isOne();
     }
 
     @Test

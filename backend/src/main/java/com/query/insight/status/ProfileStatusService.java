@@ -13,8 +13,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,16 +28,18 @@ public class ProfileStatusService {
     private final JdbcClient jdbc;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final boolean h2Database;
 
     @Autowired
-    public ProfileStatusService(JdbcClient jdbc, ObjectMapper objectMapper) {
-        this(jdbc, objectMapper, Clock.systemUTC());
+    public ProfileStatusService(JdbcClient jdbc, ObjectMapper objectMapper, DataSource dataSource) {
+        this(jdbc, objectMapper, dataSource, Clock.systemUTC());
     }
 
-    ProfileStatusService(JdbcClient jdbc, ObjectMapper objectMapper, Clock clock) {
+    ProfileStatusService(JdbcClient jdbc, ObjectMapper objectMapper, DataSource dataSource, Clock clock) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.h2Database = isH2(dataSource);
     }
 
     @Transactional
@@ -108,25 +110,53 @@ public class ProfileStatusService {
                 .param("fingerprint", fingerprint).query(this::snapshot).optional();
     }
 
-    private Snapshot insertOrFindConcurrent(long employeeId, ProfileStatusCalculator.Result result,
+    Snapshot insertOrFindConcurrent(long employeeId, ProfileStatusCalculator.Result result,
             String fingerprint, Instant calculatedAt) {
         String publicId = PublicIdGenerator.next();
-        try {
-            jdbc.sql("""
-                    INSERT INTO profile_status_snapshots(public_id,employee_id,skill_score,knowledge_score,career_score,
-                      certification_score,total_score,grade,formula_version,source_fingerprint,calculated_at)
-                    VALUES (:publicId,:employeeId,:skill,:knowledge,:career,:certification,:total,:grade,
-                      :formulaVersion,:fingerprint,:calculatedAt)
-                    """).param("publicId", publicId).param("employeeId", employeeId)
-                    .param("skill", result.skillScore()).param("knowledge", result.knowledgeScore())
-                    .param("career", result.careerScore()).param("certification", result.certificationScore())
-                    .param("total", result.totalScore()).param("grade", result.grade())
-                    .param("formulaVersion", ProfileStatusCalculator.FORMULA_VERSION)
-                    .param("fingerprint", fingerprint).param("calculatedAt", Timestamp.from(calculatedAt)).update();
-        } catch (DuplicateKeyException exception) {
-            return findByFingerprint(employeeId, fingerprint).orElseThrow(() -> exception);
+        int inserted = jdbc.sql(insertSql()).param("publicId", publicId).param("employeeId", employeeId)
+                .param("skill", result.skillScore()).param("knowledge", result.knowledgeScore())
+                .param("career", result.careerScore()).param("certification", result.certificationScore())
+                .param("total", result.totalScore()).param("grade", result.grade())
+                .param("formulaVersion", ProfileStatusCalculator.FORMULA_VERSION)
+                .param("fingerprint", fingerprint).param("calculatedAt", Timestamp.from(calculatedAt)).update();
+        if (inserted == 0) {
+            return findByFingerprint(employeeId, fingerprint).orElseThrow();
         }
         return findByFingerprint(employeeId, fingerprint).orElseThrow();
+    }
+
+    private String insertSql() {
+        if (h2Database) {
+            return """
+                    MERGE INTO profile_status_snapshots target
+                    USING (VALUES (:publicId,:employeeId,:skill,:knowledge,:career,:certification,:total,:grade,
+                      :formulaVersion,:fingerprint,:calculatedAt))
+                      source(public_id,employee_id,skill_score,knowledge_score,career_score,certification_score,
+                        total_score,grade,formula_version,source_fingerprint,calculated_at)
+                    ON target.employee_id=source.employee_id AND target.formula_version=source.formula_version
+                      AND target.source_fingerprint=source.source_fingerprint
+                    WHEN NOT MATCHED THEN INSERT(public_id,employee_id,skill_score,knowledge_score,career_score,
+                      certification_score,total_score,grade,formula_version,source_fingerprint,calculated_at)
+                    VALUES(source.public_id,source.employee_id,source.skill_score,source.knowledge_score,
+                      source.career_score,source.certification_score,source.total_score,source.grade,
+                      source.formula_version,source.source_fingerprint,source.calculated_at)
+                    """;
+        }
+        return """
+                INSERT INTO profile_status_snapshots(public_id,employee_id,skill_score,knowledge_score,career_score,
+                  certification_score,total_score,grade,formula_version,source_fingerprint,calculated_at)
+                VALUES (:publicId,:employeeId,:skill,:knowledge,:career,:certification,:total,:grade,
+                  :formulaVersion,:fingerprint,:calculatedAt)
+                ON CONFLICT (employee_id,formula_version,source_fingerprint) DO NOTHING
+                """;
+    }
+
+    private static boolean isH2(DataSource dataSource) {
+        try (var connection = dataSource.getConnection()) {
+            return "H2".equals(connection.getMetaData().getDatabaseProductName());
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Database product could not be identified", exception);
+        }
     }
 
     private Snapshot snapshot(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
