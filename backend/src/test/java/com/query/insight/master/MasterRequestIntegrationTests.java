@@ -119,7 +119,7 @@ class MasterRequestIntegrationTests {
         Flyway flyway = Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load();
         flyway.migrate();
 
-        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("8"));
+        assertThat(flyway.info().current().getVersion()).isEqualTo(MigrationVersion.fromVersion("9"));
         assertThat(legacyJdbc.sql("""
                 SELECT request_type FROM master_addition_requests
                 WHERE public_id='08M00000000000000000000001'

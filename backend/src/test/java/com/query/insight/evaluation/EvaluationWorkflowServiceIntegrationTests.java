@@ -189,6 +189,30 @@ class EvaluationWorkflowServiceIntegrationTests {
     }
 
     @Test
+    void executiveApproveBackfillsMissingSnapshotAndPreservesAnExistingSnapshot() {
+        Actor executive = actor("qi0039@query.local");
+        Target missingTarget = prepareSubmittedTarget("QI0013");
+        long missingManagerEvaluationId = currentManagerEvaluationId(missingTarget.publicId());
+        Long originalSnapshotId = profileSnapshotId(missingManagerEvaluationId);
+        jdbc.sql("UPDATE manager_evaluations SET profile_status_snapshot_id=NULL WHERE id=:id")
+                .param("id", missingManagerEvaluationId).update();
+
+        service.approve(executive.accountPublicId(), missingTarget.publicId(), missingTarget.version(),
+                null, "TRACE-APPROVE-SNAPSHOT-1");
+
+        assertThat(profileSnapshotId(missingManagerEvaluationId)).isEqualTo(originalSnapshotId).isNotNull();
+
+        Target existingTarget = prepareSubmittedTarget("QI0014");
+        long existingManagerEvaluationId = currentManagerEvaluationId(existingTarget.publicId());
+        Long existingSnapshotId = profileSnapshotId(existingManagerEvaluationId);
+
+        service.approve(executive.accountPublicId(), existingTarget.publicId(), existingTarget.version(),
+                null, "TRACE-APPROVE-SNAPSHOT-2");
+
+        assertThat(profileSnapshotId(existingManagerEvaluationId)).isEqualTo(existingSnapshotId).isNotNull();
+    }
+
+    @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
     void concurrentFirstSavesProduceOneSuccessAndOneConflictInsteadOfServerError() throws Exception {
@@ -283,6 +307,21 @@ class EvaluationWorkflowServiceIntegrationTests {
     private Long profileSnapshotId(long managerEvaluationId) {
         return jdbc.sql("SELECT profile_status_snapshot_id FROM manager_evaluations WHERE id=:id")
                 .param("id", managerEvaluationId).query(Long.class).optional().orElse(null);
+    }
+
+    private Target prepareSubmittedTarget(String employeeNo) {
+        Target initial = target(employeeNo);
+        Actor manager = managerActor(initial.publicId());
+        jdbc.sql("""
+                UPDATE evaluation_targets SET status='DRAFT',current_manager_evaluation_id=NULL,
+                  final_score=NULL,final_grade=NULL,finalized_at=NULL WHERE public_id=:publicId
+                """).param("publicId", initial.publicId()).update();
+        var saved = service.saveManager(manager.employeePublicId(), manager.accountPublicId(), initial.publicId(),
+                new EvaluationWorkflowService.ManagerSaveRequest(initial.version(), rankDetails(true), "承認用総評"),
+                "TRACE-PREPARE-SNAPSHOT");
+        var submitted = service.submitManager(manager.employeePublicId(), manager.accountPublicId(),
+                initial.publicId(), saved.targetVersion(), "TRACE-SUBMIT-SNAPSHOT");
+        return new Target(initial.publicId(), submitted.targetVersion());
     }
 
     private static List<EvaluationWorkflowService.ManagerDetailInput> rankDetails(boolean withComments) {

@@ -195,6 +195,7 @@ public class EvaluationWorkflowService {
         requireVersion(target, version);
         Status next = EvaluationWorkflow.requireTransition(Status.parse(target.status()), Action.EXECUTIVE_APPROVE);
         ManagerEvaluation manager = managerEvaluationRequired(target);
+        ensureProfileStatusSnapshot(manager, target.employeeId());
         Instant now = Instant.now();
         jdbc.sql("UPDATE manager_evaluations SET status='FINALIZED',finalized_at=:now WHERE id=:id AND status='SUBMITTED'")
                 .param("now", Timestamp.from(now)).param("id", manager.id()).update();
@@ -486,10 +487,23 @@ public class EvaluationWorkflowService {
     }
 
     private ManagerEvaluation managerEvaluation(long id) {
-        return jdbc.sql("SELECT id,status,summary,weighted_score,grade FROM manager_evaluations WHERE id=:id")
+        return jdbc.sql("""
+                SELECT id,status,summary,weighted_score,grade,profile_status_snapshot_id
+                FROM manager_evaluations WHERE id=:id
+                """)
                 .param("id", id).query((rs, row) -> new ManagerEvaluation(rs.getLong("id"), rs.getString("status"),
-                        rs.getString("summary"), rs.getBigDecimal("weighted_score"), rs.getString("grade")))
+                        rs.getString("summary"), rs.getBigDecimal("weighted_score"), rs.getString("grade"),
+                        (Long) rs.getObject("profile_status_snapshot_id")))
                 .optional().orElseThrow(EvaluationWorkflowService::invalidState);
+    }
+
+    private void ensureProfileStatusSnapshot(ManagerEvaluation manager, long employeeId) {
+        if (manager.profileStatusSnapshotId() != null) return;
+        long snapshotId = profileStatusService.recalculate(employeeId).id();
+        jdbc.sql("""
+                UPDATE manager_evaluations SET profile_status_snapshot_id=:snapshotId
+                WHERE id=:id AND profile_status_snapshot_id IS NULL
+                """).param("snapshotId", snapshotId).param("id", manager.id()).update();
     }
 
     private long requireExecutive(String accountPublicId) {
@@ -565,7 +579,8 @@ public class EvaluationWorkflowService {
             Long managerEvaluationId, BigDecimal finalScore, String finalGrade, String employeePublicId,
             String employeeName, String departmentName, String periodName, boolean late, Instant finalizedAt) {
     }
-    private record ManagerEvaluation(long id, String status, String summary, BigDecimal score, String grade) {
+    private record ManagerEvaluation(long id, String status, String summary, BigDecimal score, String grade,
+            Long profileStatusSnapshotId) {
     }
     private record ManagerValue(String rank, String comment) {
     }
