@@ -1,10 +1,12 @@
 package com.query.insight.notification;
 
+import com.query.insight.common.ApiException;
 import com.query.insight.common.PublicIdGenerator;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
@@ -32,6 +34,16 @@ public class NotificationService {
                 """).query(Long.class).list();
         accounts.forEach(accountId -> notifyAccount(accountId, type, title, body, path,
                 dedupePrefix + ":" + accountId));
+    }
+
+    public long unreadCount(String accountPublicId) {
+        long accountId = jdbc.sql("SELECT id FROM accounts WHERE public_id=:publicId AND status='ACTIVE'")
+                .param("publicId", accountPublicId).query(Long.class).optional()
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "SESSION_EXPIRED",
+                        "セッションの有効期限が切れました。再度ログインしてください"));
+        return jdbc.sql("""
+                SELECT COUNT(*) FROM notifications WHERE recipient_account_id=:accountId AND read_at IS NULL
+                """).param("accountId", accountId).query(Long.class).single();
     }
 
     private void notifyAccount(long accountId, String type, String title, String body, String path, String dedupeKey) {
