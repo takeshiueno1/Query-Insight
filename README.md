@@ -49,13 +49,13 @@ docker compose up --build backend frontend
 
 | 権限 | ログインID | パスワード |
 | --- | --- | --- |
-| 管理者 | `admin@query.local` | `QueryInsight#2026` |
-| 役職者（直属部下） | `manager@query.local` | `QueryInsight#2026` |
-| 一般 | `employee@query.local` | `QueryInsight#2026` |
-| 一般（簡易動作確認） | `test` | `test` |
-| 役職者（全社・社長） | `qi0039@query.local` | `QueryInsight#2026` |
+| 管理者 | `admin@query.local` | `QueryInsight2026` |
+| 役職者（直属部下） | `manager@query.local` | `QueryInsight2026` |
+| 一般 | `employee@query.local` | `QueryInsight2026` |
+| 一般（簡易動作確認） | `ueno` | `5050Rock` |
+| 役職者（全社・社長） | `qi0039@query.local` | `QueryInsight2026` |
 
-これらはローカル用の架空データです。50名のリアリティデータに加え、簡易動作確認専用の1名を登録しています。承認待ち・上長差戻し・確定済みの評価例も含みます。`QI0006`～`QI0050` は `qi0006@query.local` のように社員番号を小文字にしたログインIDと同じローカルパスワードで確認できます。`test` は短い認証情報を意図的に使用するローカル専用アカウントであり、本番環境には作成されません。詳細は[50名リアリティデータ](docs/08-realistic-sample-data.md)を参照してください。本番環境では `local` プロファイルを使用せず、RSA秘密鍵・公開鍵を `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` で設定してください。
+これらはローカル用の架空データです。50名のリアリティデータに加え、簡易動作確認専用の1名を登録しています。承認待ち・上長差戻し・確定済みの評価例も含みます。`QI0006`～`QI0050` は `qi0006@query.local` のように社員番号を小文字にしたログインIDと同じローカルパスワードで確認できます。`ueno` はローカル専用アカウントであり、本番環境には作成されません。詳細は[50名リアリティデータ](docs/08-realistic-sample-data.md)を参照してください。本番環境では `local` プロファイルを使用せず、RSA秘密鍵・公開鍵を `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` で設定してください。
 
 ## ローカルAI分析
 

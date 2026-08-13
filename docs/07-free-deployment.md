@@ -73,7 +73,7 @@ openssl pkey -in jwt-private.pem -pubout -out jwt-public.pem
 | `AUTH_ALLOWED_ORIGINS` | `https://<Renderのサービス名>.onrender.com` |
 | `BOOTSTRAP_ADMIN_ENABLED` | 初回だけ `true`。初期管理者作成後に `false` へ変更 |
 | `BOOTSTRAP_ADMIN_LOGIN_ID` | 初期管理者のメール形式ログインID |
-| `BOOTSTRAP_ADMIN_PASSWORD` | 15〜128文字のランダムな初期パスワード |
+| `BOOTSTRAP_ADMIN_PASSWORD` | 英字・数字を各1文字以上含む半角英数字8〜128文字のランダムな初期パスワード |
 | `BOOTSTRAP_ADMIN_EMPLOYEE_NO` | 30文字以下の一意な社員番号 |
 | `BOOTSTRAP_ADMIN_LAST_NAME` | 50文字以下 |
 | `BOOTSTRAP_ADMIN_FIRST_NAME` | 50文字以下 |

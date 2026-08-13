@@ -19,8 +19,8 @@
 
 | 項目 | 要件・実装方針 |
 | --- | --- |
-| パスワード | 15〜128文字、Argon2id（19MiB、2 iterations、parallelism 1） |
-| ロック | 5回失敗で15分。認証失敗理由は統一する |
+| パスワード | 英字・数字を各1文字以上含む半角英数字8〜128文字、Argon2id（19MiB、2 iterations、parallelism 1） |
+| ロック | アカウントロックは使用せず、認証失敗理由を統一して送信元単位のレート制限を適用する |
 | レート制限 | ログイン10回/分、Refresh 30回/分、パスワード再設定3回/10分。上限時は429を返す |
 | Token | RS256、Access 15分、Refresh 8時間、ローテーションと再利用検知 |
 | Cookie | HttpOnly、SameSite=Strict、本番Secure、認証API配下にPath制限 |

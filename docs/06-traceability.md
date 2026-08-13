@@ -52,6 +52,7 @@
 | 要件 | 自動検証 | 手動検証 |
 | --- | --- | --- |
 | JWT/Refreshローテーション | `AuthServiceIntegrationTests` | Cookie属性、期限切れ時の自動更新 |
+| パスワード入力条件 | `PasswordPolicyTests`, `AuthControllerPasswordValidationTests`, `LoginPage.test.tsx` | 半角英数字8〜128文字、英字・数字を各1文字以上、`ueno / 5050Rock` でログイン |
 | 3権限・ロック廃止 | `SimplifiedRoleMigrationIntegrationTests`, `AuthServiceIntegrationTests` | 一般・役職者・管理者の導線とスコープを確認 |
 | 任意添付 | `TalentWorkflowEndToEndIntegrationTests`, `TalentSubmissionPages.test.tsx` | 4種類を添付0件で提出・承認できること |
 | ULID公開ID | `PublicIdGeneratorTests` | URLとAPIに数値IDが出ないこと |
