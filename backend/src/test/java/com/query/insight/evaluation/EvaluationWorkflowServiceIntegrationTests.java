@@ -66,7 +66,7 @@ class EvaluationWorkflowServiceIntegrationTests {
 
     @Test
     void returnedEmployeeSubmissionCreatesWorkflowEventAuditAndManagerNotification() {
-        Actor employee = actor("test");
+        Actor employee = actor("ueno");
         Target target = target("QITEST");
         jdbc.sql("UPDATE evaluation_targets SET status='SELF_RETURNED' WHERE public_id=:publicId")
                 .param("publicId", target.publicId()).update();
