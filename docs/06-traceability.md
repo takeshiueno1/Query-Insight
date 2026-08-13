@@ -42,9 +42,9 @@
 | 監査 | `GET /api/v1/audit-logs` | 実装済み |
 | AI | `POST /api/v1/ai-analyses` | 評価・スキル・知識・経歴・資格を匿名化してローカルOllamaへ連携、JSON Schema出力・監査・結果保存を実装 |
 | スキル・知識・資格・経歴 | `GET /api/v1/employees/:publicId/talent-profile`, `/api/v1/talent-submissions/**`, `/api/v1/manager/talent-submissions/**` | 申請、添付、直属上長承認、差戻し、再申請、版履歴、正式反映を実装 |
-| マスタ追加申請 | `/api/v1/master-requests/**`, `/api/v1/admin/master-requests/**` | 社員申請、社長/管理者判断、重複防止、監査、通知を実装 |
+| マスタ追加申請 | `/api/v1/master-requests/**`, `/api/v1/admin/master-requests/**` | 社員申請、`ADMIN/ALL`判断、重複防止、監査、通知を実装 |
 | タレント選択肢 | `GET /api/v1/talent-masters/{type}` | ACTIVEなスキル・専門知識・資格を種類別申請フォームへ提供 |
-| 上長評価・経営者承認 | `/api/v1/manager-evaluations/**`、`/api/v1/executive/evaluations/**`、`GET /api/v1/evaluations/me/final-result` | 実装済み。割当・`EXECUTIVE`スコープ、楽観ロック、版・履歴、監査、通知を適用 |
+| 上長評価・経営者承認 | `/api/v1/manager-evaluations/**`、`/api/v1/executive/evaluations/**`、`GET /api/v1/evaluations/me/final-result` | 実装済み。`OFFICER/SUBORDINATES`と割当、`OFFICER/ALL`、楽観ロック、版・履歴、監査、通知を適用 |
 | 組織・アカウント・マスタ | 詳細設計書の管理API | 未実装 |
 
 ## 主要要件の検証方法
@@ -52,6 +52,8 @@
 | 要件 | 自動検証 | 手動検証 |
 | --- | --- | --- |
 | JWT/Refreshローテーション | `AuthServiceIntegrationTests` | Cookie属性、期限切れ時の自動更新 |
+| 3権限・ロック廃止 | `SimplifiedRoleMigrationIntegrationTests`, `AuthServiceIntegrationTests` | 一般・役職者・管理者の導線とスコープを確認 |
+| 任意添付 | `TalentWorkflowEndToEndIntegrationTests`, `TalentSubmissionPages.test.tsx` | 4種類を添付0件で提出・承認できること |
 | ULID公開ID | `PublicIdGeneratorTests` | URLとAPIに数値IDが出ないこと |
 | UIの代替表 | `RadarChart.test.tsx` | キーボード、狭幅、コントラスト |
 | DBマイグレーション | Spring context / Flyway test | PostgreSQL 18.4で新規起動 |

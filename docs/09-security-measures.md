@@ -9,12 +9,12 @@
 | 対象リスク | 対策 | 実装方法 |
 | --- | --- | --- |
 | パスワード漏えい | Argon2idで不可逆ハッシュ化 | 19MiB、2 iterations、parallelism 1。平文をDB・ログへ保存しない |
-| ログイン総当たり | アカウントロックと送信元単位の回数制限 | 5回失敗で15分ロック。ログインは既定10回/分、パスワード再設定は3回/10分 |
+| ログイン総当たり | 送信元単位の回数制限と失敗監査 | アカウントはロックしない。ログインは既定10回/分、パスワード再設定は3回/10分 |
 | アカウント存在確認 | 認証失敗メッセージと処理時間を近付ける | 未登録IDでもダミーArgon2検証を行い、同じ401応答を返す |
 | Token窃取・再利用 | 短寿命JWTとRefresh Tokenローテーション | Access Token 15分、Refresh Token 8時間。Refresh TokenはSHA-256ハッシュだけをDB保存 |
 | Refresh Token競合・再利用 | 行ロックとToken系列の無効化 | `SELECT ... FOR UPDATE`で同時更新を直列化し、使用済みTokenの再利用時は同じ系列を無効化する |
 | CSRF・ログインCSRF | Cookie属性と送信元検証 | HttpOnly、SameSite=Strict、本番Secure。Login/Refresh/Logout/Password ResetでOriginとFetch Metadataを検証 |
-| 不正アクセス | RBACとデータスコープ | Controllerの認証だけでなくService/APIで本人・上長・人事・管理者の参照範囲を再検証 |
+| 不正アクセス | 3権限とデータスコープ | `GENERAL`、`OFFICER`、`ADMIN`に加え、Service/APIで本人・直属部下・全社の参照範囲を再検証 |
 | XSS・クリックジャッキング | Reactエスケープとブラウザ防御ヘッダー | CSP、`frame-ancestors 'none'`、X-Frame-Options DENY、nosniff、Referrer-Policy、Permissions-Policy、COOP、CORP |
 | SQLインジェクション | パラメータ化SQL | Spring `JdbcClient`の名前付きパラメータを使用し、外部入力をSQL文字列へ連結しない |
 | 大量リクエスト | API回数制限 | Refreshは30回/分。上限超過は429と`Retry-After`を返す。保持キー数も10,000件に制限 |
@@ -27,7 +27,7 @@
 | 依存関係・CI改ざん | ロックファイル、監査、Action SHA固定 | `npm ci`、本番依存の`npm audit`、GitHub Actionsをcommit SHAで固定、Dependabotを週次設定 |
 | 操作否認・改ざん調査 | 監査ログと相関ID | 認証・更新・評価・AI操作をtraceId付きで記録し、監査レコードをハッシュ連鎖する |
 | 危険な添付ファイル | 実体検証とClamAV検査 | PDF/JPEG/PNGのmagic bytes、5MB・3件上限を検証し、CLEANになるまで取得不可。感染ファイル本体は消去する |
-| タレント情報の過剰公開 | 用途別の参照認可 | 本人、現在の直属上長、有効なEXECUTIVE/ALLだけを許可し、SYSTEM_ADMIN・AUDITORには他者の内容を公開しない |
+| タレント情報の過剰公開 | 用途別の参照認可 | 本人、現在の直属上長、有効な`OFFICER/ALL`だけを許可し、`ADMIN`には権限だけを理由に他者の内容を公開しない |
 | 未承認情報の利用 | 正式テーブルとの分離 | 申請payloadと正式プロフィールを分離し、プロフィール・検索・AI入力は承認済み正式テーブルだけを参照する |
 
 ## 3. 既定のレート制限

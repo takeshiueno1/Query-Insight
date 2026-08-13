@@ -65,6 +65,40 @@ class TalentWorkflowEndToEndIntegrationTests {
                 .param("id", draft.publicId()).query(Integer.class).single()).isEqualTo(3);
     }
 
+    @Test
+    void allFourTalentTypesCanBeSubmittedAndApprovedWithoutAttachments() {
+        Actor employee = actor("QITEST");
+        Actor manager = actor("QI0002");
+        var cases = java.util.List.of(
+                new TalentCase(Type.SKILL, new TalentPayloads.SkillPayload(
+                        unassignedMaster("skill_masters", "employee_skills", "skill_id").publicId(), 3,
+                        new BigDecimal("1.0"), LocalDate.of(2026, 8, 1), "添付なしのスキル根拠")),
+                new TalentCase(Type.KNOWLEDGE, new TalentPayloads.KnowledgePayload(
+                        unassignedMaster("knowledge_masters", "employee_knowledge", "knowledge_id").publicId(),
+                        3, "添付なしの知識根拠")),
+                new TalentCase(Type.CAREER, new TalentPayloads.CareerPayload(
+                        "添付なし経歴", "IT", "担当者", LocalDate.of(2025, 4, 1), null,
+                        "業務概要", "業務成果", "Java")),
+                new TalentCase(Type.CERTIFICATION, new TalentPayloads.CertificationPayload(
+                        unassignedMaster("certification_masters", "employee_certifications", "certification_id")
+                                .publicId(),
+                        LocalDate.of(2026, 7, 1), null, null)));
+
+        int trace = 10;
+        for (TalentCase talentCase : cases) {
+            var draft = submissions.create(employee.employeePublicId(), talentCase.type(), talentCase.payload(),
+                    employee.accountPublicId(), traceId(trace++));
+            var submitted = submissions.submit(employee.employeePublicId(), employee.accountPublicId(),
+                    draft.publicId(), draft.version(), traceId(trace++));
+            var approved = submissions.approve(manager.employeePublicId(), manager.accountPublicId(),
+                    draft.publicId(), submitted.version(), traceId(trace++));
+
+            assertThat(approved.status()).isEqualTo(TalentSubmission.Status.APPROVED);
+            assertThat(jdbc.sql("SELECT COUNT(*) FROM talent_attachments WHERE submission_id=:id")
+                    .param("id", draft.id()).query(Integer.class).single()).isZero();
+        }
+    }
+
     private Actor actor(String employeeNo) {
         return jdbc.sql("""
                 SELECT e.public_id employee_public_id,a.public_id account_public_id
@@ -82,6 +116,13 @@ class TalentWorkflowEndToEndIntegrationTests {
                 """).query((rs, row) -> new Master(rs.getString("public_id").trim(), rs.getString("code"))).single();
     }
 
+    private Master unassignedMaster(String masterTable, String employeeTable, String masterIdColumn) {
+        return jdbc.sql("SELECT m.public_id,m.code FROM " + masterTable + " m WHERE m.status='ACTIVE' AND NOT EXISTS ("
+                        + "SELECT 1 FROM " + employeeTable + " x JOIN employees e ON e.id=x.employee_id "
+                        + "WHERE x." + masterIdColumn + "=m.id AND e.employee_no='QITEST') ORDER BY m.id LIMIT 1")
+                .query((rs, row) -> new Master(rs.getString("public_id").trim(), rs.getString("code"))).single();
+    }
+
     private String traceId(int value) {
         return "01M" + String.format("%023d", value);
     }
@@ -90,6 +131,9 @@ class TalentWorkflowEndToEndIntegrationTests {
     }
 
     private record Master(String publicId, String code) {
+    }
+
+    private record TalentCase(Type type, TalentPayloads.Payload payload) {
     }
 
     @TestConfiguration
