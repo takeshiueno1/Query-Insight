@@ -1,5 +1,6 @@
 package com.query.insight.config;
 
+import com.query.insight.auth.PasswordPolicy;
 import com.query.insight.common.PublicIdGenerator;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -103,8 +104,9 @@ public class BootstrapAdminInitializer implements ApplicationRunner {
         if (loginId.isEmpty() || loginId.length() > 254 || !loginId.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
             throw new IllegalStateException("BOOTSTRAP_ADMIN_LOGIN_ID must be a valid email address");
         }
-        if (password.length() < 15 || password.length() > 128) {
-            throw new IllegalStateException("BOOTSTRAP_ADMIN_PASSWORD must contain 15 to 128 characters");
+        if (!password.matches(PasswordPolicy.REGEX)) {
+            throw new IllegalStateException(
+                    "BOOTSTRAP_ADMIN_PASSWORD must contain 8 to 128 ASCII letters and digits, including both");
         }
         if (employeeNo.isEmpty() || employeeNo.length() > 30 || lastName.isEmpty() || lastName.length() > 50
                 || firstName.isEmpty() || firstName.length() > 50) {

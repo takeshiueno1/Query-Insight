@@ -17,7 +17,7 @@ import org.springframework.test.context.ActiveProfiles;
         "spring.datasource.url=jdbc:h2:mem:bootstrap_admin;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1",
         "app.bootstrap.admin.enabled=true",
         "app.bootstrap.admin.login-id=owner@example.invalid",
-        "app.bootstrap.admin.password=BootstrapPassword#2026",
+        "app.bootstrap.admin.password=BootstrapPassword2026",
         "app.bootstrap.admin.employee-no=QI-OWNER",
         "app.bootstrap.admin.last-name=初期",
         "app.bootstrap.admin.first-name=管理者"
