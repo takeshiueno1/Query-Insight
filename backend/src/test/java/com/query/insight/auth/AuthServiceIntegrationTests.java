@@ -39,7 +39,8 @@ class AuthServiceIntegrationTests {
 
         assertThat(login.accessToken()).isNotBlank();
         assertThat(refreshed.refreshToken()).isNotEqualTo(login.refreshToken());
-        assertThat(refreshed.principal().roles()).contains("EMPLOYEE");
+        assertThat(refreshed.principal().roles()).containsExactly("GENERAL");
+        assertThat(refreshed.principal().scopes()).containsExactly("SELF");
         assertThatThrownBy(() -> authService.refresh(login.refreshToken(), "test-reuse"))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("セッション");
@@ -62,7 +63,33 @@ class AuthServiceIntegrationTests {
 
         assertThat(login.accessToken()).isNotBlank();
         assertThat(login.principal().displayName()).isEqualTo("テスト ユーザー");
-        assertThat(login.principal().roles()).containsExactly("EMPLOYEE");
+        assertThat(login.principal().roles()).containsExactly("GENERAL");
+        assertThat(login.principal().scopes()).containsExactly("SELF");
+    }
+
+    @Test
+    void repeatedInvalidPasswordsNeverLockTheAccount() {
+        for (int attempt = 0; attempt < 6; attempt++) {
+            assertThatThrownBy(() -> authService.login("test", "wrong-password", "test-invalid-password"))
+                    .isInstanceOf(ApiException.class)
+                    .hasMessage("ログインIDまたはパスワードが正しくありません");
+        }
+
+        var lockState = jdbc.sql("""
+                SELECT failed_count, locked_until FROM accounts WHERE login_id_normalized='test'
+                """).query((rs, row) -> new Object[] {rs.getInt("failed_count"), rs.getTimestamp("locked_until")})
+                .single();
+        assertThat(lockState[0]).isEqualTo(0);
+        assertThat(lockState[1]).isNull();
+        assertThat(authService.login("test", "test", "test-after-invalid-pass").accessToken()).isNotBlank();
+    }
+
+    @Test
+    void principalsExposeOnlyTheNewRoleAndItsDataScope() {
+        assertPrincipal("employee@query.local", "GENERAL", "SELF");
+        assertPrincipal("manager@query.local", "OFFICER", "SUBORDINATES");
+        assertPrincipal(loginId("QI0039"), "OFFICER", "ALL");
+        assertPrincipal("admin@query.local", "ADMIN", "ALL");
     }
 
     @Test
@@ -103,7 +130,7 @@ class AuthServiceIntegrationTests {
                 .query(String.class).single();
 
         TalentProfileService.TalentProfile profile = talentProfileService.findAccessible(
-                publicId, publicId, Set.of("EMPLOYEE"));
+                publicId, publicId, Set.of("GENERAL"));
 
         assertThat(profile.skills()).hasSize(5);
         assertThat(profile.knowledge()).hasSize(3);
@@ -113,6 +140,19 @@ class AuthServiceIntegrationTests {
 
     private int count(String table) {
         return jdbc.sql("SELECT COUNT(*) FROM " + table).query(Integer.class).single();
+    }
+
+    private void assertPrincipal(String loginId, String role, String scope) {
+        AuthService.Session session = authService.login(loginId, "QueryInsight#2026", "test-role-scope");
+        assertThat(session.principal().roles()).containsExactly(role);
+        assertThat(session.principal().scopes()).containsExactly(scope);
+    }
+
+    private String loginId(String employeeNo) {
+        return jdbc.sql("""
+                SELECT a.login_id_normalized FROM accounts a
+                JOIN employees e ON e.id=a.employee_id WHERE e.employee_no=:employeeNo
+                """).param("employeeNo", employeeNo).query(String.class).single();
     }
 
     @TestConfiguration(proxyBeanMethods = false)

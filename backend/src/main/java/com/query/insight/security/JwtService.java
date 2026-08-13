@@ -35,6 +35,7 @@ public class JwtService {
                 .claim("employeePublicId", principal.employeePublicId())
                 .claim("displayName", principal.displayName())
                 .claim("roles", principal.roles())
+                .claim("scopes", principal.scopes())
                 .build();
         String value = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(SignatureAlgorithm.RS256).build(), claims))
                 .getTokenValue();

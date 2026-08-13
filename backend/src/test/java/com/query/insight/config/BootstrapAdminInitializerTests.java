@@ -39,7 +39,12 @@ class BootstrapAdminInitializerTests {
                 """).query(Integer.class).single();
 
         assertThat(accounts).isEqualTo(1);
-        assertThat(grants).isEqualTo(4);
+        assertThat(grants).isEqualTo(1);
+        assertThat(jdbc.sql("""
+                SELECT r.code || ':' || g.scope_type FROM permission_grants g
+                JOIN roles r ON r.id=g.role_id JOIN accounts a ON a.id=g.account_id
+                WHERE a.login_id_normalized='owner@example.invalid' AND g.revoked_at IS NULL
+                """).query(String.class).single()).isEqualTo("ADMIN:ALL");
     }
 
     @TestConfiguration(proxyBeanMethods = false)

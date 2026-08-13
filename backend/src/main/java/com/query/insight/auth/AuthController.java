@@ -61,7 +61,8 @@ public class AuthController {
     @GetMapping("/me")
     MeResponse me(@AuthenticationPrincipal Jwt jwt) {
         return new MeResponse(jwt.getClaimAsString("accountPublicId"), jwt.getClaimAsString("employeePublicId"),
-                jwt.getClaimAsString("displayName"), Set.copyOf(jwt.getClaimAsStringList("roles")));
+                jwt.getClaimAsString("displayName"), Set.copyOf(jwt.getClaimAsStringList("roles")),
+                Set.copyOf(jwt.getClaimAsStringList("scopes")));
     }
 
     @PostMapping("/password-reset-requests")
@@ -73,7 +74,7 @@ public class AuthController {
         AccountPrincipal principal = session.principal();
         TokenResponse body = new TokenResponse(session.accessToken(), "Bearer", session.expiresIn(),
                 new MeResponse(principal.accountPublicId(), principal.employeePublicId(), principal.displayName(),
-                        principal.roles()));
+                        principal.roles(), principal.scopes()));
         return ResponseEntity.ok().header(HttpHeaders.SET_COOKIE, refreshCookie(session.refreshToken()).toString()).body(body);
     }
 
@@ -114,6 +115,7 @@ public class AuthController {
     public record TokenResponse(String accessToken, String tokenType, long expiresIn, MeResponse user) {
     }
 
-    public record MeResponse(String accountPublicId, String employeePublicId, String displayName, Set<String> roles) {
+    public record MeResponse(String accountPublicId, String employeePublicId, String displayName, Set<String> roles,
+            Set<String> scopes) {
     }
 }

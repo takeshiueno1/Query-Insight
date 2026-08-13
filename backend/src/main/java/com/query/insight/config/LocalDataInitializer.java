@@ -55,7 +55,7 @@ public class LocalDataInitializer implements ApplicationRunner {
                 adminEmployeeId, "アカウントエグゼクティブ", LocalDate.of(2019, 1, 15), now);
         long salesEmployeeId = employeeId(salesEmployeePublicId);
 
-        List.of("EMPLOYEE", "MANAGER", "SALES", "HR", "SYSTEM_ADMIN", "AUDITOR", "EXECUTIVE").forEach(role ->
+        List.of("GENERAL", "OFFICER", "ADMIN").forEach(role ->
                 jdbc.sql("INSERT INTO roles(code,name,status) SELECT :code,:name,'ACTIVE' "
                                 + "WHERE NOT EXISTS (SELECT 1 FROM roles WHERE code=:code)")
                         .param("code", role).param("name", role).update());
@@ -63,12 +63,9 @@ public class LocalDataInitializer implements ApplicationRunner {
         long adminAccount = account(adminEmployeeId, "admin@query.local", now);
         long managerAccount = account(managerEmployeeId, "manager@query.local", now);
         long employeeAccount = account(employeeId, "employee@query.local", now);
-        grant(adminAccount, "SYSTEM_ADMIN", "ALL", "ローカル検証用システム管理者", now);
-        grant(adminAccount, "HR", "ALL", "ローカル検証用人事担当", now);
-        grant(adminAccount, "AUDITOR", "ALL", "ローカル検証用監査担当", now);
-        grant(managerAccount, "MANAGER", "SUBORDINATES", "開発チームの評価責任者", now);
-        grant(managerAccount, "EMPLOYEE", "SELF", "本人権限", now);
-        grant(employeeAccount, "EMPLOYEE", "SELF", "本人権限", now);
+        grant(adminAccount, "ADMIN", "ALL", "ローカル検証用管理者", now);
+        grant(managerAccount, "OFFICER", "SUBORDINATES", "開発チームの評価責任者", now);
+        grant(employeeAccount, "GENERAL", "SELF", "本人権限", now);
 
         long criteriaVersion = criteriaVersion(now);
         long period = evaluationPeriod(criteriaVersion, now);

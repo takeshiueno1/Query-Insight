@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @ConditionalOnProperty(name = "app.bootstrap.admin.enabled", havingValue = "true")
 public class BootstrapAdminInitializer implements ApplicationRunner {
-    private static final List<String> ADMIN_ROLES = List.of("EMPLOYEE", "HR", "SYSTEM_ADMIN", "AUDITOR");
     private final JdbcClient jdbc;
     private final PasswordEncoder encoder;
     private final String loginId;
@@ -74,7 +73,7 @@ public class BootstrapAdminInitializer implements ApplicationRunner {
         long employeeId = jdbc.sql("SELECT id FROM employees WHERE public_id=:publicId")
                 .param("publicId", employeePublicId).query(Long.class).single();
 
-        List.of("EMPLOYEE", "MANAGER", "SALES", "HR", "SYSTEM_ADMIN", "AUDITOR", "EXECUTIVE").forEach(role ->
+        List.of("GENERAL", "OFFICER", "ADMIN").forEach(role ->
                 jdbc.sql("INSERT INTO roles(code,name,status) SELECT :code,:name,'ACTIVE' "
                                 + "WHERE NOT EXISTS (SELECT 1 FROM roles WHERE code=:code)")
                         .param("code", role).param("name", role).update());
@@ -88,12 +87,12 @@ public class BootstrapAdminInitializer implements ApplicationRunner {
         long accountId = jdbc.sql("SELECT id FROM accounts WHERE public_id=:publicId")
                 .param("publicId", accountPublicId).query(Long.class).single();
 
-        ADMIN_ROLES.forEach(role -> jdbc.sql("""
+        jdbc.sql("""
                 INSERT INTO permission_grants(public_id,account_id,role_id,scope_type,valid_from,reason)
-                VALUES (:publicId,:accountId,(SELECT id FROM roles WHERE code=:role),'ALL',:now,
+                VALUES (:publicId,:accountId,(SELECT id FROM roles WHERE code='ADMIN'),'ALL',:now,
                   '初期管理者ブートストラップ')
                 """).param("publicId", PublicIdGenerator.next()).param("accountId", accountId)
-                .param("role", role).param("now", now).update());
+                .param("now", now).update();
     }
 
     private long count(String table) {

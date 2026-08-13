@@ -20,8 +20,8 @@ public class AuthRepository {
 
     Optional<AccountRecord> findAccount(String normalizedLoginId) {
         return jdbc.sql("""
-                SELECT a.id, a.public_id, a.employee_id, a.password_hash, a.status, a.failed_count,
-                       a.locked_until, e.public_id employee_public_id,
+                SELECT a.id, a.public_id, a.employee_id, a.password_hash, a.status,
+                       e.public_id employee_public_id,
                        CONCAT(e.last_name, ' ', e.first_name) display_name
                 FROM accounts a JOIN employees e ON e.id = a.employee_id
                 WHERE a.login_id_normalized = :loginId
@@ -29,23 +29,21 @@ public class AuthRepository {
                 .param("loginId", normalizedLoginId)
                 .query((rs, row) -> new AccountRecord(rs.getLong("id"), rs.getString("public_id"),
                         rs.getLong("employee_id"), rs.getString("employee_public_id"), rs.getString("display_name"),
-                        rs.getString("password_hash"), rs.getString("status"), rs.getInt("failed_count"),
-                        rs.getTimestamp("locked_until") == null ? null : rs.getTimestamp("locked_until").toInstant()))
+                        rs.getString("password_hash"), rs.getString("status")))
                 .optional();
     }
 
     Optional<AccountRecord> findAccountById(long accountId) {
         return jdbc.sql("""
-                SELECT a.id, a.public_id, a.employee_id, a.password_hash, a.status, a.failed_count,
-                       a.locked_until, e.public_id employee_public_id,
+                SELECT a.id, a.public_id, a.employee_id, a.password_hash, a.status,
+                       e.public_id employee_public_id,
                        CONCAT(e.last_name, ' ', e.first_name) display_name
                 FROM accounts a JOIN employees e ON e.id = a.employee_id WHERE a.id = :id
                 """)
                 .param("id", accountId)
                 .query((rs, row) -> new AccountRecord(rs.getLong("id"), rs.getString("public_id"),
                         rs.getLong("employee_id"), rs.getString("employee_public_id"), rs.getString("display_name"),
-                        rs.getString("password_hash"), rs.getString("status"), rs.getInt("failed_count"),
-                        rs.getTimestamp("locked_until") == null ? null : rs.getTimestamp("locked_until").toInstant()))
+                        rs.getString("password_hash"), rs.getString("status")))
                 .optional();
     }
 
@@ -58,14 +56,18 @@ public class AuthRepository {
                 """).param("accountId", accountId).param("now", Timestamp.from(now)).query(String.class).list());
     }
 
-    void loginSucceeded(long accountId, Instant now) {
-        jdbc.sql("UPDATE accounts SET failed_count = 0, locked_until = NULL, last_login_at = :now WHERE id = :id")
-                .param("now", Timestamp.from(now)).param("id", accountId).update();
+    Set<String> activeScopes(long accountId, Instant now) {
+        return new LinkedHashSet<>(jdbc.sql("""
+                SELECT DISTINCT g.scope_type FROM permission_grants g JOIN roles r ON r.id = g.role_id
+                WHERE g.account_id = :accountId AND g.revoked_at IS NULL
+                  AND g.valid_from <= :now AND (g.valid_to IS NULL OR g.valid_to > :now)
+                  AND r.status = 'ACTIVE' ORDER BY g.scope_type
+                """).param("accountId", accountId).param("now", Timestamp.from(now)).query(String.class).list());
     }
 
-    void loginFailed(long accountId, int failedCount, Instant lockedUntil) {
-        jdbc.sql("UPDATE accounts SET failed_count = :count, locked_until = :lockedUntil WHERE id = :id")
-                .param("count", failedCount).param("lockedUntil", timestamp(lockedUntil)).param("id", accountId).update();
+    void loginSucceeded(long accountId, Instant now) {
+        jdbc.sql("UPDATE accounts SET last_login_at = :now WHERE id = :id")
+                .param("now", Timestamp.from(now)).param("id", accountId).update();
     }
 
     long insertRefreshToken(long accountId, String tokenHash, String familyId, Instant issuedAt, Instant expiresAt) {
@@ -101,20 +103,17 @@ public class AuthRepository {
     }
 
     AccountPrincipal principal(AccountRecord account) {
+        Instant now = Instant.now();
         return new AccountPrincipal(account.id(), account.employeeId(), account.publicId(), account.employeePublicId(),
-                account.displayName(), activeRoles(account.id(), Instant.now()));
+                account.displayName(), activeRoles(account.id(), now), activeScopes(account.id(), now));
     }
 
     private static Instant instant(Timestamp timestamp) {
         return timestamp == null ? null : timestamp.toInstant();
     }
 
-    private static Timestamp timestamp(Instant instant) {
-        return instant == null ? null : Timestamp.from(instant);
-    }
-
     record AccountRecord(long id, String publicId, long employeeId, String employeePublicId, String displayName,
-            String passwordHash, String status, int failedCount, Instant lockedUntil) {
+            String passwordHash, String status) {
     }
 
     record RefreshRecord(long id, long accountId, String familyId, Instant expiresAt, Instant usedAt,

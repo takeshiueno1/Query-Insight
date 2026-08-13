@@ -252,7 +252,7 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
     }
 
     private void ensureRoles() {
-        for (String role : List.of("EMPLOYEE", "MANAGER", "SALES", "HR", "SYSTEM_ADMIN", "AUDITOR", "EXECUTIVE")) {
+        for (String role : List.of("GENERAL", "OFFICER", "ADMIN")) {
             if (count("SELECT COUNT(*) FROM roles WHERE code=:code", "code", role) == 0) {
                 jdbc.sql("INSERT INTO roles(code,name,status) VALUES (:code,:name,'ACTIVE')")
                         .param("code", role).param("name", role).update();
@@ -426,12 +426,17 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
                     .param("hash", encoder.encode(testUser ? "test" : LOCAL_PASSWORD))
                     .param("now", now).update();
         }
-        grantIfMissing(employeeId, "EMPLOYEE", "SELF", "ローカル検証用本人権限", now);
-        if (isManager(seed.number())) {
-            grantIfMissing(employeeId, "MANAGER", "SUBORDINATES", "ローカル検証用評価者権限", now);
-        }
+        if (count("""
+                SELECT COUNT(*) FROM permission_grants g JOIN roles r ON r.id=g.role_id
+                WHERE g.account_id=(SELECT id FROM accounts WHERE employee_id=:employeeId)
+                  AND r.code IN ('GENERAL','OFFICER','ADMIN') AND g.revoked_at IS NULL
+                """, "employeeId", employeeId) > 0) return;
         if (seed.number() == 39) {
-            grantIfMissing(employeeId, "EXECUTIVE", "ALL", "ローカル検証用経営者権限", now);
+            grantIfMissing(employeeId, "OFFICER", "ALL", "ローカル検証用経営者権限", now);
+        } else if (isManager(seed.number())) {
+            grantIfMissing(employeeId, "OFFICER", "SUBORDINATES", "ローカル検証用評価者権限", now);
+        } else {
+            grantIfMissing(employeeId, "GENERAL", "SELF", "ローカル検証用本人権限", now);
         }
     }
 

@@ -51,14 +51,11 @@ public class AuthService {
         }
         AuthRepository.AccountRecord account = candidate.orElseThrow();
         Instant now = Instant.now();
-        if (!"ACTIVE".equals(account.status()) || account.lockedUntil() != null && account.lockedUntil().isAfter(now)) {
+        if (!"ACTIVE".equals(account.status())) {
             auditService.record(account.id(), "AUTH_LOGIN", "ACCOUNT", account.publicId(), "DENIED", null, traceId);
             throw invalidCredentials();
         }
         if (!passwordEncoder.matches(password, account.passwordHash())) {
-            int failedCount = account.failedCount() + 1;
-            Instant lockedUntil = failedCount >= 5 ? now.plus(Duration.ofMinutes(15)) : null;
-            repository.loginFailed(account.id(), failedCount, lockedUntil);
             auditService.record(account.id(), "AUTH_LOGIN", "ACCOUNT", account.publicId(), "DENIED", null, traceId);
             throw invalidCredentials();
         }
