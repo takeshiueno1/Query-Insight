@@ -8,7 +8,10 @@ import { ApiError } from '../lib/api'
 
 const schema = z.object({
   loginId: z.string().trim().min(1, 'ログインIDを入力してください').max(254),
-  password: z.string().min(15, 'パスワードは15文字以上です').max(128),
+  password: z.string()
+    .min(8, 'パスワードは半角英数字8文字以上です')
+    .max(128)
+    .regex(/^(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]+$/, 'パスワードは半角英数字で、英字と数字を含めてください'),
 })
 type FormValues = z.infer<typeof schema>
 

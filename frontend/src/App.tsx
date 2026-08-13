@@ -55,7 +55,7 @@ export default function App() {
       <Route path="notifications" element={<NotificationsPage />} />
       <Route path="masters" element={<FeaturePage screenId="SCR-014" title="マスタ管理" description="評価基準版とスキル・資格マスタを履歴管理します" sections={['評価基準版', 'スキルマスタ', '資格マスタ']} />} />
       <Route path="audit" element={<AuditPage />} />
-      <Route path="password/change" element={<FeaturePage screenId="SCR-016" title="パスワード変更" description="現在のパスワード確認後、15～128文字の新しいパスフレーズへ変更します" sections={['本人確認', 'ブロックリスト検査', '全セッション失効']} />} />
+      <Route path="password/change" element={<FeaturePage screenId="SCR-016" title="パスワード変更" description="現在のパスワード確認後、半角英数字8～128文字（英字・数字を各1文字以上）の新しいパスワードへ変更します" sections={['本人確認', '入力条件検査', '全セッション失効']} />} />
       <Route path="password/reset" element={<FeaturePage screenId="SCR-017" title="パスワード再設定" description="一回限り・30分有効のトークンで再設定します" sections={['本人確認', 'トークン検証', '再設定完了']} />} />
       <Route path="approvals" element={<Navigate to="/approvals/talent" replace />} />
       <Route path="evaluations/history" element={<FeaturePage screenId="SCR-019" title="評価履歴比較" description="期間ごとの自己・上長・確定評価を混同せず比較します" sections={['期間選択', '6軸比較', '根拠スナップショット']} />} />
