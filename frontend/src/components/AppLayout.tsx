@@ -63,10 +63,11 @@ export function AppLayout() {
   const { user, logout } = useAuth()
   const location = useLocation()
   const unreadQuery = useQuery({
-    queryKey: ['notifications', 'unread-count'],
+    queryKey: ['notifications', 'unread-count', user?.accountPublicId],
     queryFn: () => api<{ unreadCount: number }>('/api/v1/notifications/unread-count'),
+    enabled: Boolean(user?.accountPublicId),
   })
-  const unreadCount = unreadQuery.data?.unreadCount ?? 0
+  const unreadCount = unreadQuery.isError ? 0 : unreadQuery.data?.unreadCount ?? 0
   return (
     <div className="app-shell">
       <aside className="sidebar">

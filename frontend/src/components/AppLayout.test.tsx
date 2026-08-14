@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { User } from '../types'
@@ -64,18 +64,51 @@ describe('権限別ナビゲーション', () => {
     const badge = await screen.findByLabelText(`未読通知${unreadCount}件`)
     expect(badge).toHaveTextContent(visibleCount)
   })
+
+  it('同じQueryClientで利用者が切り替わっても前利用者の未読数を表示しない', async () => {
+    apiMock.mockResolvedValueOnce({ unreadCount: 7 }).mockResolvedValueOnce({ unreadCount: 2 })
+    const client = queryClient()
+    const { rerender } = renderLayout(user('GENERAL', 'SELF', 'ACCOUNT-A'), '/', client)
+    expect(await screen.findByLabelText('未読通知7件')).toBeInTheDocument()
+
+    useAuthMock.mockReturnValue({ user: user('GENERAL', 'SELF', 'ACCOUNT-B'), loading: false, logout: vi.fn() })
+    rerender(layoutTree(client))
+
+    expect(screen.queryByLabelText('未読通知7件')).not.toBeInTheDocument()
+    expect(await screen.findByLabelText('未読通知2件')).toBeInTheDocument()
+    expect(apiMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('未読数の再取得に失敗したら取得済みの古いバッジを隠す', async () => {
+    apiMock.mockResolvedValueOnce({ unreadCount: 4 }).mockRejectedValueOnce(new Error('再取得失敗'))
+    const client = queryClient()
+    renderLayout(user('GENERAL', 'SELF'), '/', client)
+    expect(await screen.findByLabelText('未読通知4件')).toBeInTheDocument()
+
+    await act(() => client.invalidateQueries({ queryKey: ['notifications'] }))
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(2))
+    expect(screen.queryByLabelText('未読通知4件')).not.toBeInTheDocument()
+  })
 })
 
-function renderLayout(currentUser: User, path = '/') {
+function renderLayout(currentUser: User, path = '/', client = queryClient()) {
   useAuthMock.mockReturnValue({ user: currentUser, loading: false, logout: vi.fn() })
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(
+  return render(layoutTree(client, path))
+}
+
+function layoutTree(client: QueryClient, path = '/') {
+  return (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}><AppLayout /></MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   )
 }
 
-function user(role: User['roles'][number], scope: User['scopes'][number]): User {
-  return { accountPublicId: 'A', employeePublicId: 'E', displayName: '試験 利用者', roles: [role], scopes: [scope] }
+function queryClient() {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } })
+}
+
+function user(role: User['roles'][number], scope: User['scopes'][number], accountPublicId = 'A'): User {
+  return { accountPublicId, employeePublicId: 'E', displayName: '試験 利用者', roles: [role], scopes: [scope] }
 }
