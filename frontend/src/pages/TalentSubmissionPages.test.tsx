@@ -9,6 +9,7 @@ import { TalentSubmissionFormPage } from './TalentSubmissionFormPage'
 import { TalentSubmissionHistoryPage } from './TalentSubmissionHistoryPage'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
+const asyncWait = { timeout: 5_000 }
 vi.mock('../lib/api', () => ({
   api: apiMock,
   ApiError: class extends Error {
@@ -72,7 +73,10 @@ describe('TalentSubmissionFormPage', () => {
     })
     renderType('SKILL')
 
-    await screen.findByRole('option', { name: 'Java' })
+    await waitFor(() => {
+      expect(apiMock).toHaveBeenCalledWith('/api/v1/talent-masters/SKILL')
+      expect(screen.getByRole('option', { name: 'Java' })).toBeInTheDocument()
+    }, asyncWait)
     fireEvent.change(screen.getByLabelText('スキル'), { target: { value: 'MASTER-1' } })
     fireEvent.change(screen.getByLabelText('習熟状況'), { target: { value: '4' } })
     fireEvent.change(screen.getByLabelText('経験年数'), { target: { value: '2.5' } })
