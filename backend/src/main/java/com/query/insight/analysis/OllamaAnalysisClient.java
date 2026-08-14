@@ -31,7 +31,7 @@ public class OllamaAnalysisClient implements AiAnalysisClient {
     private static final Pattern PERSONNEL_DECISION = Pattern.compile(
             "(?:昇進|昇格|降格|採用|解雇|報酬|給与|賞与|配置|異動)[\\s・_-]*"
                     + "(?:を[\\s・_-]*)?(?:推奨|判断|決定|候補|対象|すべき)");
-    private static final Pattern HUMAN_RESOURCES_DECISION = Pattern.compile("人事[\\s・_-]*判断");
+    private static final Pattern HUMAN_RESOURCES_DECISION = Pattern.compile("人事[\\s・_-]*(?:判断|判定)");
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;

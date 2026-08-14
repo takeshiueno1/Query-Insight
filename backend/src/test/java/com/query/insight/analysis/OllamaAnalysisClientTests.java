@@ -96,6 +96,12 @@ class OllamaAnalysisClientTests {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"人事判定", "人事・判定", "人事_判断", "人事-判断"})
+    void rejectsHumanResourcesDecisionVariants(String decision) throws Exception {
+        assertForbidden(responseBody(content(decision, "設計力", "障害対応の実績", "レビューを主導")));
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"新技術を採用した", "報酬系の設計", "配置技術", "給与計算システム", "賞与計算機能"})
     void allowsBenignBusinessAndTechnicalTerms(String benignText) throws Exception {
         String response = responseBody(content("安定した遂行力", "設計力", benignText, "レビューを主導する"));
