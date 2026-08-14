@@ -209,4 +209,15 @@ export type TalentSubmission = {
 }
 export type ManagerTalentItem = { publicId: string; type: TalentSubmissionType; status: TalentSubmissionStatus; version: number; submittedAt: string; employeePublicId: string; employeeName: string }
 export type ManagerTalentDetail = { submission: TalentSubmission; employee: { publicId: string; displayName: string }; approvedPredecessorPayload: Record<string, unknown> | null; attachments: Array<{ publicId: string; fileName: string; contentType: string; sizeBytes: number; scanStatus: string }>; events: Array<{ action: string; fromStatus: string | null; toStatus: string; reason: string | null; occurredAt: string }> }
-export type MasterRequest = { publicId: string; type: 'SKILL'|'CERTIFICATION'; payload: Record<string, unknown>; status: 'SUBMITTED'|'APPROVED'|'RETURNED'; version: number; returnReason: string | null; requestedAt: string }
+export type MasterRequest = {
+  publicId: string
+  type: string
+  description: string
+  status: 'SUBMITTED' | 'APPROVED' | 'RETURNED'
+  version: number
+  returnReason: string | null
+  requestedAt: string
+  decidedAt: string | null
+  createdMasterPublicId: string | null
+  requesterName: string
+}

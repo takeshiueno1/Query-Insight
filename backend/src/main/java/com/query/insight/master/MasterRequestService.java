@@ -42,31 +42,32 @@ public class MasterRequestService {
     public enum Status { SUBMITTED, APPROVED, RETURNED }
 
     @Transactional
-    public Row create(String accountPublicId, Type type, JsonNode payload, String traceId) {
+    public Row create(String accountPublicId, String type, String description, String traceId) {
         long accountId = accountId(accountPublicId);
-        JsonNode normalized = normalizeAndValidate(type, payload);
+        String normalizedType = required(type, "種類", 100);
+        String normalizedDescription = required(description, "説明", 1000);
         String publicId = PublicIdGenerator.next();
         Instant now = Instant.now();
         jdbc.sql("""
                 INSERT INTO master_addition_requests(public_id,requested_by_account_id,master_type,
                   proposed_payload_json,request_type,request_description,status,version,requested_at,created_master_public_id)
-                VALUES (:publicId,:accountId,:type,:payload,:requestType,:requestDescription,'SUBMITTED',0,:now,NULL)
-                """).param("publicId", publicId).param("accountId", accountId).param("type", type.name())
-                .param("payload", jsonParameter(normalized)).param("requestType", type.name())
-                .param("requestDescription", requestDescription(type, normalized)).param("now", Timestamp.from(now)).update();
+                VALUES (:publicId,:accountId,NULL,NULL,:requestType,:requestDescription,'SUBMITTED',0,:now,NULL)
+                """).param("publicId", publicId).param("accountId", accountId)
+                .param("requestType", normalizedType).param("requestDescription", normalizedDescription)
+                .param("now", Timestamp.from(now)).update();
         audit.record(accountId, "MASTER_REQUEST_SUBMIT", "MASTER_REQUEST", publicId,
                 "SUCCESS", "SELF", traceId);
         return find(publicId);
     }
 
     public List<Row> mine(String accountPublicId) {
-        return rows(" WHERE requested_by_account_id=:accountId ORDER BY requested_at DESC,id DESC")
+        return rows(" WHERE m.requested_by_account_id=:accountId ORDER BY m.requested_at DESC,m.id DESC")
                 .param("accountId", accountId(accountPublicId)).query(this::map).list();
     }
 
     public List<Row> adminList(String accountPublicId, Set<String> roles, Status status) {
         requireReviewer(accountPublicId, roles);
-        return rows(" WHERE status=:status ORDER BY requested_at,id").param("status", status.name())
+        return rows(" WHERE m.status=:status ORDER BY m.requested_at,m.id").param("status", status.name())
                 .query(this::map).list();
     }
 
@@ -75,31 +76,16 @@ public class MasterRequestService {
             long version, String traceId) {
         requireReviewer(accountPublicId, roles);
         long actorId = accountId(accountPublicId);
-        Row current = find(requestPublicId);
+        StoredRequest current = findStored(requestPublicId);
         requireSubmitted(current, version);
-        JsonNode payload = normalizeAndValidate(current.type(), current.payload());
-        requireUnique(current.type(), text(payload, "code"), text(payload, "name"));
-        String masterPublicId = PublicIdGenerator.next();
-        if (current.type() == Type.SKILL) {
-            jdbc.sql("""
-                    INSERT INTO skill_masters(public_id,code,name,category,description,status)
-                    VALUES (:publicId,:code,:name,:category,:description,'ACTIVE')
-                    """).param("publicId", masterPublicId).param("code", text(payload, "code"))
-                    .param("name", text(payload, "name")).param("category", text(payload, "category"))
-                    .param("description", text(payload, "description")).update();
-        } else {
-            jdbc.sql("""
-                    INSERT INTO certification_masters(public_id,code,name,issuer,status)
-                    VALUES (:publicId,:code,:name,:issuer,'ACTIVE')
-                    """).param("publicId", masterPublicId).param("code", text(payload, "code"))
-                    .param("name", text(payload, "name")).param("issuer", text(payload, "issuer")).update();
-        }
+        String masterPublicId = createLegacyMaster(current);
         Instant now = Instant.now();
         int updated = jdbc.sql("""
                 UPDATE master_addition_requests SET status='APPROVED',version=version+1,decided_at=:now,
                   decided_by_account_id=:actorId,created_master_public_id=:masterId
                 WHERE id=:id AND status='SUBMITTED' AND version=:version
-                """).param("now", Timestamp.from(now)).param("actorId", actorId).param("masterId", masterPublicId)
+                """).param("now", Timestamp.from(now)).param("actorId", actorId)
+                .param("masterId", new SqlParameterValue(Types.CHAR, masterPublicId))
                 .param("id", current.id()).param("version", version).update();
         requireUpdated(updated);
         notifyRequester(current, "MASTER_REQUEST_APPROVED", "マスタ追加申請が承認されました",
@@ -118,7 +104,7 @@ public class MasterRequestService {
                     "差戻し理由は1～1000文字で入力してください");
         }
         long actorId = accountId(accountPublicId);
-        Row current = find(requestPublicId);
+        StoredRequest current = findStored(requestPublicId);
         requireSubmitted(current, version);
         int updated = jdbc.sql("""
                 UPDATE master_addition_requests SET status='RETURNED',version=version+1,return_reason=:reason,
@@ -184,7 +170,7 @@ public class MasterRequestService {
                 "同じコードまたは名称のマスタが存在します");
     }
 
-    private void requireSubmitted(Row current, long version) {
+    private void requireSubmitted(StoredRequest current, long version) {
         if (current.status() != Status.SUBMITTED) throw conflict();
         if (current.version() != version) throw conflict();
     }
@@ -198,7 +184,7 @@ public class MasterRequestService {
                 "他の利用者が更新しました。再読み込みしてください");
     }
 
-    private void notifyRequester(Row current, String type, String title, String dedupeKey) {
+    private void notifyRequester(StoredRequest current, String type, String title, String dedupeKey) {
         Long employeeId = jdbc.sql("SELECT employee_id FROM accounts WHERE id=:id")
                 .param("id", current.requestedByAccountId()).query(Long.class).single();
         notifications.notifyEmployee(employeeId, type, title, "申請結果を確認してください。",
@@ -213,44 +199,83 @@ public class MasterRequestService {
     }
 
     private Row find(String publicId) {
-        return rows(" WHERE public_id=:publicId").param("publicId", publicId).query(this::map).optional()
+        return rows(" WHERE m.public_id=:publicId").param("publicId", publicId).query(this::map).optional()
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "MASTER_REQUEST_NOT_FOUND",
+                        "対象の申請が見つかりません"));
+    }
+
+    private StoredRequest findStored(String publicId) {
+        return storedRows(" WHERE m.public_id=:publicId").param("publicId", publicId)
+                .query(this::mapStored).optional()
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "MASTER_REQUEST_NOT_FOUND",
                         "対象の申請が見つかりません"));
     }
 
     private JdbcClient.StatementSpec rows(String suffix) {
         return jdbc.sql("""
-                SELECT id,public_id,requested_by_account_id,master_type,CAST(proposed_payload_json AS VARCHAR) payload,
-                  status,version,return_reason,requested_at,decided_at,created_master_public_id
-                FROM master_addition_requests
+                SELECT m.public_id,m.request_type,m.request_description,m.status,m.version,m.return_reason,
+                  m.requested_at,m.decided_at,m.created_master_public_id,
+                  CONCAT(e.last_name,' ',e.first_name) requester_name
+                FROM master_addition_requests m
+                JOIN accounts a ON a.id=m.requested_by_account_id
+                JOIN employees e ON e.id=a.employee_id
                 """ + suffix);
     }
 
     private Row map(java.sql.ResultSet rs, int ignored) throws java.sql.SQLException {
         Timestamp decided = rs.getTimestamp("decided_at");
-        return new Row(rs.getLong("id"), rs.getString("public_id").trim(),
-                rs.getLong("requested_by_account_id"), Type.valueOf(rs.getString("master_type")),
-                parse(rs.getString("payload")), Status.valueOf(rs.getString("status")), rs.getLong("version"),
+        return new Row(rs.getString("public_id").trim(), rs.getString("request_type"),
+                rs.getString("request_description"), Status.valueOf(rs.getString("status")), rs.getLong("version"),
                 rs.getString("return_reason"), rs.getTimestamp("requested_at").toInstant(),
-                decided == null ? null : decided.toInstant(), trim(rs.getString("created_master_public_id")));
+                decided == null ? null : decided.toInstant(), trim(rs.getString("created_master_public_id")),
+                rs.getString("requester_name"));
     }
 
-    private SqlParameterValue jsonParameter(JsonNode payload) {
-        return new SqlParameterValue(Types.OTHER, jsonText(payload));
+    private JdbcClient.StatementSpec storedRows(String suffix) {
+        return jdbc.sql("""
+                SELECT m.id,m.public_id,m.requested_by_account_id,m.master_type,
+                  CAST(m.proposed_payload_json AS VARCHAR) payload,m.request_type,m.request_description,
+                  m.status,m.version,m.return_reason,m.requested_at,m.decided_at,m.created_master_public_id,
+                  CONCAT(e.last_name,' ',e.first_name) requester_name
+                FROM master_addition_requests m
+                JOIN accounts a ON a.id=m.requested_by_account_id
+                JOIN employees e ON e.id=a.employee_id
+                """ + suffix);
     }
 
-    private String jsonText(JsonNode payload) {
-        try {
-            return objectMapper.writeValueAsString(payload);
-        } catch (JacksonException exception) {
-            throw new IllegalStateException("Master request payload could not be serialized", exception);
+    private StoredRequest mapStored(java.sql.ResultSet rs, int ignored) throws java.sql.SQLException {
+        Timestamp decided = rs.getTimestamp("decided_at");
+        String legacyType = rs.getString("master_type");
+        String payload = rs.getString("payload");
+        return new StoredRequest(rs.getLong("id"), rs.getString("public_id").trim(),
+                rs.getLong("requested_by_account_id"), rs.getString("request_type"),
+                rs.getString("request_description"), legacyType == null ? null : Type.valueOf(legacyType),
+                payload == null ? null : parse(payload), Status.valueOf(rs.getString("status")),
+                rs.getLong("version"), rs.getString("return_reason"),
+                rs.getTimestamp("requested_at").toInstant(), decided == null ? null : decided.toInstant(),
+                trim(rs.getString("created_master_public_id")), rs.getString("requester_name"));
+    }
+
+    private String createLegacyMaster(StoredRequest current) {
+        if (current.masterType() == null || current.payload() == null) return null;
+        JsonNode payload = normalizeAndValidate(current.masterType(), current.payload());
+        requireUnique(current.masterType(), text(payload, "code"), text(payload, "name"));
+        String masterPublicId = PublicIdGenerator.next();
+        if (current.masterType() == Type.SKILL) {
+            jdbc.sql("""
+                    INSERT INTO skill_masters(public_id,code,name,category,description,status)
+                    VALUES (:publicId,:code,:name,:category,:description,'ACTIVE')
+                    """).param("publicId", masterPublicId).param("code", text(payload, "code"))
+                    .param("name", text(payload, "name")).param("category", text(payload, "category"))
+                    .param("description", text(payload, "description")).update();
+        } else {
+            jdbc.sql("""
+                    INSERT INTO certification_masters(public_id,code,name,issuer,status)
+                    VALUES (:publicId,:code,:name,:issuer,'ACTIVE')
+                    """).param("publicId", masterPublicId).param("code", text(payload, "code"))
+                    .param("name", text(payload, "name")).param("issuer", text(payload, "issuer")).update();
         }
-    }
-
-    private String requestDescription(Type type, JsonNode payload) {
-        String name = text(payload, "name").trim();
-        String description = name.isBlank() ? type.name() : name;
-        return description.length() <= 1000 ? description : description.substring(0, 1000);
+        return masterPublicId;
     }
 
     private JsonNode parse(String value) {
@@ -266,6 +291,14 @@ public class MasterRequestService {
         return payload.path(field).asText();
     }
 
+    private String required(String value, String label, int max) {
+        String normalized = value == null ? "" : value.trim();
+        if (normalized.isBlank() || normalized.length() > max) {
+            throw invalid(label + "は1～" + max + "文字で入力してください");
+        }
+        return normalized;
+    }
+
     private String trim(String value) {
         return value == null ? null : value.trim();
     }
@@ -274,8 +307,14 @@ public class MasterRequestService {
         return new ApiException(HttpStatus.BAD_REQUEST, "MASTER_REQUEST_INVALID", message);
     }
 
-    public record Row(long id, String publicId, long requestedByAccountId, Type type, JsonNode payload,
-            Status status, long version, String returnReason, Instant requestedAt, Instant decidedAt,
-            String createdMasterPublicId) {
+    public record Row(String publicId, String type, String description, Status status, long version,
+            String returnReason, Instant requestedAt, Instant decidedAt, String createdMasterPublicId,
+            String requesterName) {
+    }
+
+    private record StoredRequest(long id, String publicId, long requestedByAccountId, String type,
+            String description, Type masterType, JsonNode payload, Status status, long version,
+            String returnReason, Instant requestedAt, Instant decidedAt, String createdMasterPublicId,
+            String requesterName) {
     }
 }
