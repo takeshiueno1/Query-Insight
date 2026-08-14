@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
+import { KnowledgeSection, SkillSection } from '../components/TalentProfilePanel'
 import type { TalentProfile, TalentSubmission, User } from '../types'
 
 const { apiMock, useAuthMock } = vi.hoisted(() => ({ apiMock: vi.fn(), useAuthMock: vi.fn() }))
@@ -46,12 +47,40 @@ describe('タレント情報の種類別ルート', () => {
     expect(screen.getByRole('link', { name: '得意分野を登録' })).toHaveAttribute('href', '/talent/new/KNOWLEDGE')
     expect(screen.getByText('Java')).toBeInTheDocument()
     expect(screen.getByText('ドメイン設計')).toBeInTheDocument()
-    expect(screen.getByLabelText('習熟状況: 高度')).toBeInTheDocument()
-    expect(screen.getByLabelText('習熟状況: 自立')).toBeInTheDocument()
-    expect(screen.queryByLabelText(/レベル[1-5]/)).not.toBeInTheDocument()
+    expect(screen.getByText('習熟状況：高度')).toBeVisible()
+    expect(screen.getByText('習熟状況：自立')).toBeVisible()
+    expect(document.querySelectorAll('.level-meter[aria-hidden="true"]')).toHaveLength(2)
+    expect(document.querySelector('.level-meter')).not.toHaveAttribute('aria-label')
     expect(screen.queryByText('基幹刷新')).not.toBeInTheDocument()
     expect(screen.queryByText('基本情報技術者')).not.toBeInTheDocument()
     expect(screen.queryByText('専門知識')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    [1, '学習中'], [2, '基礎'], [3, '自立'], [4, '高度'], [5, '指導'],
+  ])('習熟状況%sを自然語「%s」で可視表示しbarを装飾として扱う', (level, label) => {
+    const { container } = render(<SkillSection skills={[{
+      code: `SK00${level}`, name: `スキル${level}`, category: '開発', level,
+      yearsExperience: 1, lastUsedOn: '2026-08-01', evidence: '業務実績',
+    }]} />)
+
+    expect(screen.getByText(`習熟状況：${label}`)).toBeVisible()
+    const meter = container.querySelector('.level-meter')
+    expect(meter).toHaveAttribute('aria-hidden', 'true')
+    expect(meter).not.toHaveAttribute('aria-label')
+    expect(meter).toHaveTextContent('')
+  })
+
+  it('未知の習熟状況は数値を露出せず「未設定」と可視表示する', () => {
+    const { container } = render(<KnowledgeSection knowledge={[{
+      code: 'KN-UNKNOWN', name: '未知の知識', category: '設計', level: 99, evidence: '確認中',
+    }]} />)
+
+    expect(screen.getByText('習熟状況：未設定')).toBeVisible()
+    expect(screen.queryByText('99')).not.toBeInTheDocument()
+    expect(container.querySelector('.level-meter')).toHaveAttribute('aria-hidden', 'true')
+    expect(container.querySelector('.level-meter')).not.toHaveAttribute('aria-label')
+    expect(container.querySelector('.level-meter .filled')).not.toBeInTheDocument()
   })
 
   it('業務経歴画面は業務経歴だけを表示する', async () => {

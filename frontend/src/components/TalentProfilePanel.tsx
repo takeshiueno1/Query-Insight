@@ -68,5 +68,9 @@ export function CertificationSection({ certifications }: { certifications: Talen
 }
 
 function Level({ value }: { value: number }) {
-  return <span className="level-meter" aria-label={`習熟状況: ${competencyLevelLabel(value)}`}>{[1, 2, 3, 4, 5].map((level) => <i key={level} className={level <= value ? 'filled' : ''} />)}</span>
+  const displayLevel = Number.isInteger(value) && value >= 1 && value <= 5 ? value : 0
+  return <div className="competency-level">
+    <span className="competency-label">習熟状況：{competencyLevelLabel(value)}</span>
+    <span className="level-meter" aria-hidden="true">{[1, 2, 3, 4, 5].map((level) => <i key={level} className={level <= displayLevel ? 'filled' : ''} />)}</span>
+  </div>
 }

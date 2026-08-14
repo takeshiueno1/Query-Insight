@@ -176,6 +176,7 @@ describe('TalentSubmissionFormPage', () => {
     renderExisting('SKILL', 'RETURNED-1')
 
     expect(await screen.findByDisplayValue('既存の根拠')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText(/状態:/)).toHaveTextContent('状態: 差戻し / 第2版'))
     fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
 
     await waitFor(() => expect(updateRequest?.method).toBe('PUT'))
@@ -405,11 +406,14 @@ describe('TalentSubmissionFormPage', () => {
     })
     renderExisting('SKILL', 'DRAFT-1')
     await screen.findByDisplayValue('既存の根拠')
+    await waitFor(() => expect(screen.getByText(/状態:/)).toHaveTextContent('状態: 下書き / 第1版'))
 
     fireEvent.click(screen.getByRole('button', { name: '下書き保存' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(problem.detail)
-    expect(mineCalls).toBe(2)
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/api/v1/talent-submissions/DRAFT-1',
+      expect.objectContaining({ method: 'PUT' })))
+    await waitFor(() => expect(mineCalls).toBe(2))
+    expect(await screen.findByText(problem.detail)).toHaveAttribute('role', 'alert')
   })
 })
 

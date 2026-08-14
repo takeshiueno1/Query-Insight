@@ -77,7 +77,7 @@
 2026-08-14の製品修正round 1で、現行`App.tsx`から到達できる画面とlocal sampleを再確認した。
 
 - `frontend/src/pages/AiAnalysisPage.tsx`、`AuditPage.tsx`、社員系画面、`NotificationsPage.tsx`、`FeaturePage.tsx`利用routeの利用者向け画面IDを、用途を表す日本語見出しへ置換した。`AppUserVisibleLabels.test.tsx`は実際のmount routeで`SCR-*`非表示を検証する。
-- `frontend/src/pages/TalentSubmissionFormPage.tsx`のスキル・得意分野入力は「習熟状況」とし、`学習中・基礎・自立・高度・指導`を内部値1〜5へ対応付ける。申請詳細・承認詳細・プロフィールも同じ日本語ラベルを表示し、上長評価のS〜Fとは別の尺度として扱う。
+- `frontend/src/pages/TalentSubmissionFormPage.tsx`のスキル・得意分野入力は「習熟状況」とし、`学習中・基礎・自立・高度・指導`を内部値1〜5へ対応付ける。申請詳細・承認詳細・プロフィールも同じ日本語ラベルを表示し、上長評価のS〜Fとは別の尺度として扱う。プロフィールでは自然語を可視テキストにし、5本のbarは`aria-hidden`の装飾とする。未知値は内部数値を表示せず「未設定」とする。
 - `frontend/src/pages/EvaluationPage.tsx` は旧本人入力文言を含むが、`App.tsx`からはmountされず、`/evaluations/self`は本人向け確定結果へ転送される。
 - `frontend/src/pages/TalentProfilePage.tsx` は旧統合プロフィール表記を含むが、現行の一般メニューは`/skills`、`/careers`、`/certifications`を使用する。
 - `backend/src/main/java/com/query/insight/config/LocalDataInitializer.java`の旧本人評価通知seedは削除した。`LocalRealisticDataInitializer.java`は一般本人の確定結果、直属上長の最終承認差戻し、全社役職者の最終承認対象を、各recipientのrole/scopeに合うroute付きでseedし、旧2件のdedupe keyを局所削除する。
@@ -87,6 +87,7 @@
 
 ## 実動作と残る確認gate
 
+- 2026-08-14の製品修正round 2では、Frontend 14 files・130件、lint、buildが成功した。関連4 files・63件は同一commandを3回連続実行して成功した。
 - 2026-08-14の製品修正round 1では、Backend 194件、Frontend 14 files・124件、Frontend lint・buildが成功した。追加したfocused検証はBackend 7件、Frontend 52件が成功した。
 - 2026-08-14のTask 11静的検証は、Backend 190件、Frontend 13 files・108件、lint、build、`npm audit --audit-level=moderate`（脆弱性0件）、Compose config、diff check、差分秘密情報scanが成功した。
 - Docker Desktop daemonはWSLの`HCS_E_CONNECTION_TIMEOUT`と`docker-desktop-data`異常終了によりAPI 500のまま復旧せず、Compose/PostgreSQL/ClamAV/Ollamaは起動できなかった。volume・image・既存データの削除やWSL全体停止は行っていない。したがってPostgreSQLでのFlyway V1〜V9、V8/V9、添付`SKIP LOCKED`、上長評価並行競合、ClamAV、Ollama成功modeは未確認である。
