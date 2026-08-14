@@ -22,6 +22,17 @@ export type Score = { axisCode: string; displayName: string; level: number }
 
 export type EvaluationRank = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
 
+export const evaluationStatusLabels: Record<string, string> = {
+  DRAFT: '下書き',
+  SELF_IN_PROGRESS: '本人入力中',
+  SELF_SUBMITTED: '上長評価待ち',
+  SELF_RETURNED: '本人へ差戻し',
+  MANAGER_IN_PROGRESS: '上長入力中',
+  MANAGER_RETURNED: '最終承認者から差戻し',
+  EXECUTIVE_REVIEW: '最終承認待ち',
+  FINALIZED: '確定済み',
+}
+
 export type ProfileStatus = {
   publicId: string
   skillScore: number
@@ -126,7 +137,7 @@ export type EvaluationComparisonDetail = {
   description: string
   selfLevel: number | null
   selfEvidence: string | null
-  managerLevel: number | null
+  managerRank: EvaluationRank | null
   managerComment: string | null
 }
 
@@ -141,7 +152,7 @@ export type ManagerEvaluation = {
   late: boolean
   summary: string | null
   score: number | null
-  grade: string | null
+  grade: EvaluationRank | null
   details: EvaluationComparisonDetail[]
 }
 
@@ -161,9 +172,9 @@ export type ExecutiveEvaluation = {
   late: boolean
   summary: string | null
   score: number | null
-  grade: string | null
+  grade: EvaluationRank | null
   finalScore: number | null
-  finalGrade: string | null
+  finalGrade: EvaluationRank | null
   details: EvaluationComparisonDetail[]
   events: Array<{ action: string; fromStatus: string; toStatus: string; reason: string | null; comment: string | null; late: boolean; deadlineType: 'SELF' | 'MANAGER'; occurredAt: string }>
 }

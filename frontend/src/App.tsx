@@ -8,9 +8,9 @@ import { EmployeeDetailPage } from './pages/EmployeeDetailPage'
 import { EmployeeFormPage } from './pages/EmployeeFormPage'
 import { EmployeesPage } from './pages/EmployeesPage'
 import { ErrorPage } from './pages/ErrorPage'
-import { EvaluationPage } from './pages/EvaluationPage'
 import { ManagerEvaluationsPage } from './pages/ManagerEvaluationsPage'
 import { ManagerEvaluationDetailPage } from './pages/ManagerEvaluationDetailPage'
+import { FinalManagerEvaluationPage } from './pages/FinalManagerEvaluationPage'
 import { ExecutiveDashboardPage } from './pages/ExecutiveDashboardPage'
 import { ExecutiveEvaluationDetailPage } from './pages/ExecutiveEvaluationDetailPage'
 import { FeaturePage } from './pages/FeaturePage'
@@ -52,7 +52,8 @@ export default function App() {
       <Route path="approvals/talent" element={<ManagerTalentApprovalsPage />} />
       <Route path="approvals/talent/:publicId" element={<ManagerTalentApprovalDetailPage />} />
       <Route path="master-requests" element={<MasterRequestsPage />} />
-      <Route path="evaluations/self" element={<EvaluationPage />} />
+      <Route path="evaluations/self" element={<Navigate to="/evaluations/manager-result" replace />} />
+      <Route path="evaluations/manager-result" element={<FinalManagerEvaluationPage />} />
       <Route path="evaluations/manager" element={<ManagerEvaluationsPage />} />
       <Route path="evaluations/manager/:publicId" element={<ManagerEvaluationDetailPage />} />
       <Route path="executive/evaluations" element={<ExecutiveDashboardPage />} />

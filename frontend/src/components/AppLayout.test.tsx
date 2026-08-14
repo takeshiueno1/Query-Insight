@@ -38,8 +38,20 @@ describe('権限別ナビゲーション', () => {
     expect(screen.getByRole('link', { name: 'スキル' })).toHaveAttribute('href', '/skills')
     expect(screen.getByRole('link', { name: '業務経歴' })).toHaveAttribute('href', '/careers')
     expect(screen.getByRole('link', { name: '資格' })).toHaveAttribute('href', '/certifications')
+    expect(screen.getByRole('link', { name: '上長評価' })).toHaveAttribute('href', '/evaluations/manager-result')
     expect(screen.queryByRole('link', { name: '評価' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'AI分析' })).not.toBeInTheDocument()
+  })
+
+  it('役職者のscopeごとに評価routeを分ける', () => {
+    const subordinate = renderLayout(user('OFFICER', 'SUBORDINATES'))
+    expect(screen.getByRole('link', { name: '上長評価入力' })).toHaveAttribute('href', '/evaluations/manager')
+    expect(screen.queryByRole('link', { name: '最終承認' })).not.toBeInTheDocument()
+
+    subordinate.unmount()
+    renderLayout(user('OFFICER', 'ALL'))
+    expect(screen.getByRole('link', { name: '最終承認' })).toHaveAttribute('href', '/executive/evaluations')
+    expect(screen.queryByRole('link', { name: '上長評価入力' })).not.toBeInTheDocument()
   })
 
   it('正式ロゴと日本語パンくずを表示し内部pathを見せない', () => {

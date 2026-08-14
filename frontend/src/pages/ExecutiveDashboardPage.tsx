@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../features/auth/auth-context'
 import { api } from '../lib/api'
 import type { ExecutiveDashboard } from '../types'
 
 export function ExecutiveDashboardPage() {
-  const query = useQuery({ queryKey: ['executive-evaluations'], queryFn: () => api<ExecutiveDashboard>('/api/v1/executive/evaluations') })
+  const { user } = useAuth()
+  const query = useQuery({ queryKey: ['executive-evaluations', user?.accountPublicId], queryFn: () => api<ExecutiveDashboard>('/api/v1/executive/evaluations'), enabled: Boolean(user?.accountPublicId) })
   const [status, setStatus] = useState('ALL')
   const [deadline, setDeadline] = useState('ALL')
   const [period, setPeriod] = useState('ALL')
