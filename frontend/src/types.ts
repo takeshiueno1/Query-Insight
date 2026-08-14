@@ -260,6 +260,25 @@ export const talentSubmissionStatusLabels: Record<TalentSubmissionStatus, string
 export const talentVerificationStatusLabels: Record<string, string> = {
   VERIFIED: '確認済み',
 }
+export const employmentStatusLabels: Record<string, string> = {
+  ACTIVE: '在籍',
+  LEAVE: '休職',
+  RETIRED: '退職',
+}
+export const talentMasterCategoryLabels: Record<string, string> = {
+  ENGINEERING: 'エンジニアリング',
+  PLATFORM: '基盤・インフラ',
+  QUALITY: '品質保証',
+  DATA: 'データ',
+  PRODUCT: 'プロダクト',
+  BUSINESS: 'ビジネス',
+  DELIVERY: '企画・推進',
+  SALES: '営業',
+  CUSTOMER: '顧客支援',
+  PEOPLE: '人材・組織',
+  CORPORATE: 'コーポレート',
+  GOVERNANCE: 'ガバナンス',
+}
 export type TalentMasterChoice = { publicId: string; code: string; name: string }
 export type TalentSubmissionPayload = Partial<{
   masterPublicId: string

@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { api } from '../lib/api'
 import { competencyLevelLabel } from '../lib/competency'
-import { talentVerificationStatusLabels, type TalentProfile } from '../types'
+import { talentMasterCategoryLabels, talentVerificationStatusLabels, type TalentProfile } from '../types'
 
 export function TalentProfileLoader({ employeePublicId, errorMessage, children }: {
   employeePublicId: string
@@ -31,7 +31,7 @@ export function SkillSection({ skills }: { skills: TalentProfile['skills'] }) {
   return <section className="card">
       <div className="card-header"><div><h2>スキル</h2><p>実務経験と根拠に基づく習熟状況</p></div><strong>{skills.length}件</strong></div>
       <div className="tag-grid">{skills.map((skill) => <article key={skill.code}>
-        <div><strong>{skill.name}</strong><span>{skill.category}</span></div>
+        <div><strong>{skill.name}</strong><span>{talentMasterCategoryLabels[skill.category] ?? skill.category}</span></div>
         <Level value={skill.level} />
         <p>経験 {skill.yearsExperience}年 / 最終利用 {skill.lastUsedOn}</p><small>{skill.evidence}</small>
       </article>)}{skills.length === 0 && <p className="empty">登録済みのスキルはありません。</p>}</div>
@@ -42,7 +42,7 @@ export function KnowledgeSection({ knowledge }: { knowledge: TalentProfile['know
   return <section className="card">
       <div className="card-header"><div><h2>得意分野</h2><p>判断や設計に利用できる知識領域</p></div><strong>{knowledge.length}件</strong></div>
       <div className="tag-grid">{knowledge.map((item) => <article key={item.code}>
-        <div><strong>{item.name}</strong><span>{item.category}</span></div><Level value={item.level} /><small>{item.evidence}</small>
+        <div><strong>{item.name}</strong><span>{talentMasterCategoryLabels[item.category] ?? item.category}</span></div><Level value={item.level} /><small>{item.evidence}</small>
       </article>)}{knowledge.length === 0 && <p className="empty">登録済みの得意分野はありません。</p>}</div>
     </section>
 }

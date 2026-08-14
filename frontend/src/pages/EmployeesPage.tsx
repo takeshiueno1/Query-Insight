@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import type { EmployeePage } from '../types'
+import { employmentStatusLabels, type EmployeePage } from '../types'
 
 export function EmployeesPage() {
   const [input, setInput] = useState('')
@@ -28,4 +28,4 @@ export function EmployeesPage() {
   )
 }
 
-function Status({ value }: { value: string }) { return <span className={`status ${value === 'ACTIVE' ? 'success' : 'warning'}`}>{value}</span> }
+function Status({ value }: { value: string }) { return <span className={`status ${value === 'ACTIVE' ? 'success' : 'warning'}`}>{employmentStatusLabels[value] ?? '状態不明'}</span> }

@@ -83,6 +83,22 @@ describe('タレント情報の種類別ルート', () => {
     expect(container.querySelector('.level-meter .filled')).not.toBeInTheDocument()
   })
 
+  it('スキルと得意分野の内部分類コードを日本語で表示する', () => {
+    render(<>
+      <SkillSection skills={[{
+        code: 'SK-ENGINEERING', name: 'Java', category: 'ENGINEERING', level: 4,
+        yearsExperience: 5, lastUsedOn: '2026-08-01', evidence: '業務実績',
+      }]} />
+      <KnowledgeSection knowledge={[{
+        code: 'KN-PLATFORM', name: 'SRE', category: 'PLATFORM', level: 3, evidence: '運用実績',
+      }]} />
+    </>)
+
+    expect(screen.getByText('エンジニアリング')).toBeVisible()
+    expect(screen.getByText('基盤・インフラ')).toBeVisible()
+    expect(document.body).not.toHaveTextContent(/\bENGINEERING\b|\bPLATFORM\b/)
+  })
+
   it('業務経歴画面は業務経歴だけを表示する', async () => {
     renderAt('/careers')
 

@@ -24,9 +24,22 @@ describe('到達可能な画面の利用者向け見出し', () => {
     })
     apiMock.mockImplementation((path: string) => {
       if (path === '/api/v1/notifications/unread-count') return Promise.resolve({ unreadCount: 0 })
-      if (path === '/api/v1/audit-logs' || path === '/api/v1/notifications') return Promise.resolve([])
+      if (path === '/api/v1/audit-logs') {
+        return Promise.resolve([{
+          publicId: 'AUDIT-1', occurredAt: '2026-08-14T00:00:00Z', actorPublicId: 'ACCOUNT-1',
+          action: 'AUTH_LOGIN', targetType: 'ACCOUNT', targetPublicId: 'ACCOUNT-1',
+          result: 'SUCCESS', dataScope: 'SELF', traceId: 'TRACE-1',
+        }])
+      }
+      if (path === '/api/v1/notifications') return Promise.resolve([])
       if (path.startsWith('/api/v1/employees?')) {
-        return Promise.resolve({ content: [], totalElements: 0, totalPages: 0, page: 0, size: 20 })
+        return Promise.resolve({
+          content: [{
+            publicId: 'EMPLOYEE-1', employeeNo: 'QI0008', name: '試験 社員',
+            departmentName: '開発部', positionName: '担当者', employmentStatus: 'ACTIVE',
+          }],
+          totalElements: 1, totalPages: 1, page: 0, size: 20,
+        })
       }
       if (path === '/api/v1/employees/EMPLOYEE-1') {
         return Promise.resolve({
@@ -63,6 +76,26 @@ describe('到達可能な画面の利用者向け見出し', () => {
     expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
     expect(document.querySelector('.page-heading .eyebrow')).toHaveTextContent(eyebrow)
     expect(document.body).not.toHaveTextContent(/SCR-[0-9]+/)
+  })
+
+  it.each([
+    ['/employees', '在籍'],
+    ['/employees/EMPLOYEE-1', '在籍'],
+  ])('%sは在籍状態の内部コードを日本語で表示する', async (path, label) => {
+    renderApp(path)
+
+    expect(await screen.findByText(label)).toBeVisible()
+    expect(document.body).not.toHaveTextContent(/\bACTIVE\b/)
+  })
+
+  it('監査ログは操作・対象・結果・スコープを日本語で表示する', async () => {
+    renderApp('/audit')
+
+    expect(await screen.findByText('ログイン')).toBeVisible()
+    expect(screen.getByText('アカウント')).toBeVisible()
+    expect(screen.getByText('成功')).toBeVisible()
+    expect(screen.getByText('本人')).toBeVisible()
+    expect(document.body).not.toHaveTextContent(/\bAUTH_LOGIN\b|\bACCOUNT\b|\bSUCCESS\b|\bSELF\b/)
   })
 })
 

@@ -87,11 +87,12 @@
 
 ## 実動作と残る確認gate
 
+- 2026-08-14の実ブラウザ追加確認で発見した在籍状態、タレント分類、監査ログの内部コード表示を日本語化した。Frontend 14 files・134件、lint、buildが成功した。対象テストは35件が成功し、配布物の実ブラウザでも`ACTIVE`、`ENGINEERING`、`AUTH_LOGIN`等が表示されないことを確認した。
 - 2026-08-14の製品修正round 2では、Frontend 14 files・130件、lint、buildが成功した。関連4 files・63件は同一commandを3回連続実行して成功した。
 - 2026-08-14の製品修正round 1では、Backend 194件、Frontend 14 files・124件、Frontend lint・buildが成功した。追加したfocused検証はBackend 7件、Frontend 52件が成功した。
 - 2026-08-14のTask 11静的検証は、Backend 190件、Frontend 13 files・108件、lint、build、`npm audit --audit-level=moderate`（脆弱性0件）、Compose config、diff check、差分秘密情報scanが成功した。
 - Docker Desktop daemonはWSLの`HCS_E_CONNECTION_TIMEOUT`と`docker-desktop-data`異常終了によりAPI 500のまま復旧せず、Compose/PostgreSQL/ClamAV/Ollamaは起動できなかった。volume・image・既存データの削除やWSL全体停止は行っていない。したがってPostgreSQLでのFlyway V1〜V9、V8/V9、添付`SKIP LOCKED`、上長評価並行競合、ClamAV、Ollama成功modeは未確認である。
 - worktreeのH2代替runtimeではFlyway V1〜V9を適用し、health、3権限のlogin、本人dashboard/profile/通知/4種類申請、上長一覧・詳細、経営一覧・確定詳細、確定本人結果をHTTP確認した。AI無効時の保存結果は`PROTOTYPE`だった。これはPostgreSQL/Compose実動作の代替証明ではない。
 - `GET /api/v1/talent-submissions/me`の必須`type`欠落は、`MissingServletRequestParameterException`だけを捕捉して`VALIDATION_ERROR`、field `type`、code `required`の構造化400を返すよう修正した。予期しない例外の500処理は維持する。`TalentSubmissionControllerIntegrationTests`で実endpoint、`GlobalExceptionHandlerTests`で共通required query処理を検証する。
-- 実ブラウザの視覚・操作確認は未実施である。主担当がdesktop/390px、loading/error、基本キーボードfocus、水平overflow、glass fallback、一般・直属上長・全社役職者の通し操作を確認するまで、ブラウザ確認済みとしない。
+- H2代替runtimeの実ブラウザでは、desktop/390px、水平overflowなし、glass表示、一般・直属上長・全社役職者・管理者の主要画面を確認した。上長評価1件を6軸Bで保存・提出し、全社役職者が最終承認、本人へランク・コメントだけを公開、通知と監査履歴を生成する通し操作まで成功した。AIは`PROTOTYPE`表示で実行できた。基本キーボードfocusはブラウザ自動操作側でTab移動を再現できず、手動確認を残す。
 - 本MVPは詳細設計書の全76 APIを完了した本番リリース版ではない。上表の`画面骨格`・`未実装`と、[未決事項](99-open-questions.md)に残る本番運用条件を別途完了する必要がある。
