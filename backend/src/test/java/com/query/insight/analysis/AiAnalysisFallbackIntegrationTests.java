@@ -184,6 +184,31 @@ class AiAnalysisFallbackIntegrationTests {
     }
 
     @Test
+    void aiRequestRemovesOneCharacterLastAndFirstNamesOfAnotherEmployee() {
+        actor = actor("QI0005");
+        String lastName = "李";
+        String firstName = "蓮";
+        jdbc.sql("""
+                INSERT INTO employees(public_id,employee_no,last_name,first_name,email,employment_status,
+                  version,created_at,updated_at)
+                VALUES (:publicId,'QI9001',:lastName,:firstName,'one-character-name@example.invalid','ACTIVE',
+                  0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+                """).param("publicId", com.query.insight.common.PublicIdGenerator.next())
+                .param("lastName", lastName).param("firstName", firstName).update();
+        String sensitiveText = "別社員: " + lastName + " / " + firstName + " / " + lastName + firstName;
+        jdbc.sql("""
+                UPDATE manager_evaluation_details SET comment=:value WHERE manager_evaluation_id=(
+                  SELECT t.current_manager_evaluation_id FROM evaluation_targets t
+                  JOIN employees e ON e.id=t.employee_id WHERE e.public_id=:employeePublicId)
+                """).param("value", sensitiveText).param("employeePublicId", actor.employeePublicId()).update();
+        StubClient client = new StubClient();
+
+        service(client, true).create(actor.employeePublicId(), actor.accountPublicId(), traceId(9));
+
+        assertThat(client.axes.toString()).contains("[除去]").doesNotContain(lastName, firstName);
+    }
+
+    @Test
     void successfulAiKeepsModelOutputPersistenceAuditAndExcludesPrivateEvaluation() {
         actor = actor("QI0005");
         StubClient client = new StubClient();

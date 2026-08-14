@@ -56,8 +56,9 @@ public class AnalysisPrivacySanitizer {
                 """).query((rs, row) -> {
                     String lastName = rs.getString("last_name");
                     String firstName = rs.getString("first_name");
-                    add(values, rs.getString("employee_no"), lastName, firstName, rs.getString("email"),
-                            rs.getString("public_id"), lastName + firstName, firstName + lastName,
+                    addIdentityName(values, lastName, firstName);
+                    add(values, rs.getString("employee_no"), rs.getString("email"), rs.getString("public_id"),
+                            lastName + firstName, firstName + lastName,
                             lastName + " " + firstName, firstName + " " + lastName,
                             lastName + "　" + firstName, firstName + "　" + lastName);
                     return 0;
@@ -78,6 +79,12 @@ public class AnalysisPrivacySanitizer {
     private static void add(Set<String> values, String... candidates) {
         for (String candidate : candidates) {
             if (candidate != null && candidate.trim().length() >= 2) values.add(candidate.trim());
+        }
+    }
+
+    private static void addIdentityName(Set<String> values, String... names) {
+        for (String name : names) {
+            if (name != null && !name.isBlank()) values.add(name.trim());
         }
     }
 

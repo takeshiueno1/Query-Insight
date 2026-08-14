@@ -8,6 +8,8 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -77,20 +79,26 @@ class OllamaAnalysisClientTests {
     @Test
     void rejectsRankAndPersonnelDecisionsInEveryFreeTextField() throws Exception {
         List<String> forbiddenTerms = List.of("Sランク", "A評価", "Bランク相当", "C評価", "S・評価",
-                "ランクを判定", "評価は判定", "昇進", "昇格", "採用", "解雇", "報酬", "配置判断", "人事判断",
-                "異動を推奨", "降格候補", "給与を決定", "賞与判断");
+                "ランクを判定", "評価は判定", "人事判断");
         for (String forbiddenTerm : forbiddenTerms) {
             assertForbidden(responseBody(content(forbiddenTerm, "技術力", "障害対応の実績", "設計レビューを主導")));
         }
         assertForbidden(responseBody(content("安定した遂行力", "昇進候補", "障害対応の実績", "設計レビューを主導")));
-        assertForbidden(responseBody(content("安定した遂行力", "技術力", "昇格させる根拠", "設計レビューを主導")));
+        assertForbidden(responseBody(content("安定した遂行力", "技術力", "昇格対象", "設計レビューを主導")));
         assertForbidden(responseBody(content("安定した遂行力", "技術力", "障害対応の実績", "配置判断を行う")));
     }
 
-    @Test
-    void allowsOrdinaryTechnicalUseOfPlacementWord() throws Exception {
-        String response = responseBody(content("安定した遂行力", "設計力",
-                "コンポーネントの配置技術を改善した", "配置技術のレビューを主導する"));
+    @ParameterizedTest
+    @ValueSource(strings = {"採用を推奨", "解雇判断", "昇進を決定", "昇格候補", "降格対象",
+            "異動すべき", "配置を推奨", "報酬判断", "給与を決定", "賞与候補"})
+    void rejectsPersonnelDecisionsWithDecisionContext(String decision) throws Exception {
+        assertForbidden(responseBody(content(decision, "設計力", "障害対応の実績", "レビューを主導")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"新技術を採用した", "報酬系の設計", "配置技術", "給与計算システム", "賞与計算機能"})
+    void allowsBenignBusinessAndTechnicalTerms(String benignText) throws Exception {
+        String response = responseBody(content("安定した遂行力", "設計力", benignText, "レビューを主導する"));
 
         assertThat(client.parseResponseBody(response).summary()).contains("遂行力");
     }

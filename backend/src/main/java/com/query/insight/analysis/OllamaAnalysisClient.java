@@ -24,16 +24,14 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class OllamaAnalysisClient implements AiAnalysisClient {
     private static final String PROVIDER = "OLLAMA";
-    private static final List<String> PROHIBITED_DECISIONS = List.of(
-            "Sランク", "A評価", "ランク判定", "昇進", "昇格", "採用", "解雇", "報酬", "配置判断", "人事判断");
     private static final Pattern GRADE_DECISION = Pattern.compile(
             "(?i)[SABCDF][\\s・_-]*(?:ランク|評価)(?:[\\s・_-]*(?:相当|候補))?");
     private static final Pattern RANK_DECISION = Pattern.compile(
             "(?:ランク|評価)[\\s・_-]*[をはが]?[\\s・_-]*判定");
     private static final Pattern PERSONNEL_DECISION = Pattern.compile(
             "(?:昇進|昇格|降格|採用|解雇|報酬|給与|賞与|配置|異動)[\\s・_-]*"
-                    + "(?:[をはが][\\s・_-]*)?(?:推奨|判断|決定|候補)");
-    private static final Pattern HUMAN_RESOURCES_DECISION = Pattern.compile("人事[\\s・_-]*判定");
+                    + "(?:を[\\s・_-]*)?(?:推奨|判断|決定|候補|対象|すべき)");
+    private static final Pattern HUMAN_RESOURCES_DECISION = Pattern.compile("人事[\\s・_-]*判断");
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -157,8 +155,7 @@ public class OllamaAnalysisClient implements AiAnalysisClient {
     private static boolean containsProhibitedDecision(String text) {
         if (text == null) return false;
         String normalized = Normalizer.normalize(text, Normalizer.Form.NFKC);
-        return PROHIBITED_DECISIONS.stream().anyMatch(normalized::contains)
-                || GRADE_DECISION.matcher(normalized).find()
+        return GRADE_DECISION.matcher(normalized).find()
                 || RANK_DECISION.matcher(normalized).find()
                 || PERSONNEL_DECISION.matcher(normalized).find()
                 || HUMAN_RESOURCES_DECISION.matcher(normalized).find();
