@@ -12,8 +12,8 @@ export function TalentProfileLoader({ employeePublicId, errorMessage, children }
     queryKey: ['talent-profile', employeePublicId],
     queryFn: () => api<TalentProfile>(`/api/v1/employees/${employeePublicId}/talent-profile`),
   })
-  if (query.isLoading) return <section className="card"><p>タレント情報を読み込んでいます…</p></section>
-  if (!query.data) return <section className="card"><p className="error-banner">{errorMessage}</p></section>
+  if (query.isLoading) return <section className="card" role="status"><p>タレント情報を読み込んでいます…</p></section>
+  if (!query.data) return <section className="card" role="alert"><p className="error-banner">{errorMessage}</p></section>
   return children(query.data)
 }
 

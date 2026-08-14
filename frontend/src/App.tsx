@@ -47,6 +47,7 @@ export default function App() {
       <Route path="careers/edit" element={<Navigate to="/careers" replace />} />
       <Route path="certifications/edit" element={<Navigate to="/certifications" replace />} />
       <Route path="talent/new/:type" element={<TalentSubmissionFormPage />} />
+      <Route path="talent/:type/:publicId/edit" element={<TalentSubmissionFormPage />} />
       <Route path="talent/:logicalPublicId/history" element={<TalentSubmissionHistoryPage />} />
       <Route path="approvals/talent" element={<ManagerTalentApprovalsPage />} />
       <Route path="approvals/talent/:publicId" element={<ManagerTalentApprovalDetailPage />} />

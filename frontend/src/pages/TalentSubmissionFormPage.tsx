@@ -1,20 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useParams } from 'react-router-dom'
 import { z } from 'zod'
 import { api, ApiError } from '../lib/api'
-import { talentSubmissionStatusLabels, talentSubmissionTypeLabels, type TalentMasterChoice, type TalentSubmission, type TalentSubmissionType } from '../types'
-
-const categoryRoutes: Record<TalentSubmissionType, string> = {
-  SKILL: '/skills', KNOWLEDGE: '/skills', CAREER: '/careers', CERTIFICATION: '/certifications',
-}
+import { talentCategoryRoutes, talentSubmissionStatusLabels, talentSubmissionTypeLabels, type TalentMasterChoice, type TalentSubmission, type TalentSubmissionPayload, type TalentSubmissionType } from '../types'
 
 type FormValues = {
   masterPublicId: string; level: string; yearsExperience: string; lastUsedOn: string; evidence: string
   projectName: string; industry: string; roleName: string; startDate: string; endDate: string
   summary: string; achievements: string; technologies: string; acquiredOn: string; expiresOn: string
   credentialReference: string
+}
+
+const initialValues: FormValues = {
+  masterPublicId: '', level: '3', yearsExperience: '0', lastUsedOn: '', evidence: '',
+  projectName: '', industry: '', roleName: '', startDate: '', endDate: '', summary: '', achievements: '',
+  technologies: '', acquiredOn: '', expiresOn: '', credentialReference: '',
 }
 
 const required = (label: string, max: number) => z.string().trim().min(1, `${label}を入力してください`).max(max)
@@ -26,10 +28,10 @@ const schemas = {
 } satisfies Record<TalentSubmissionType, z.ZodType>
 
 export function TalentSubmissionFormPage() {
-  const { type = 'SKILL' } = useParams()
+  const { type = 'SKILL', publicId } = useParams()
   const talentType = (Object.keys(talentSubmissionTypeLabels).includes(type.toUpperCase()) ? type.toUpperCase() : 'SKILL') as TalentSubmissionType
   const label = talentSubmissionTypeLabels[talentType]
-  const { register, handleSubmit } = useForm<FormValues>({ defaultValues: { level: '3', yearsExperience: '0' } })
+  const { register, handleSubmit, reset } = useForm<FormValues>({ defaultValues: initialValues })
   const [draft, setDraft] = useState<TalentSubmission | null>(null)
   const [files, setFiles] = useState<File[]>([])
   const [message, setMessage] = useState<string | null>(null)
@@ -39,12 +41,24 @@ export function TalentSubmissionFormPage() {
     queryFn: () => api<TalentMasterChoice[]>(`/api/v1/talent-masters/${talentType}`),
     enabled: talentType !== 'CAREER',
   })
+  const existingQuery = useQuery({
+    queryKey: ['talent-submissions', 'mine', talentType],
+    queryFn: () => api<TalentSubmission[]>(`/api/v1/talent-submissions/me?type=${talentType}`),
+    enabled: Boolean(publicId),
+  })
+  const existing = existingQuery.data?.find((item) => item.publicId === publicId)
+
+  useEffect(() => {
+    if (!existing || draft !== null) return
+    setDraft(existing)
+    reset(toFormValues(existing.payload))
+  }, [draft, existing, reset])
 
   const mutation = useMutation({
     mutationFn: async ({ action, values }: { action: 'save' | 'submit'; values: FormValues }) => {
       const result = schemas[talentType].safeParse(values)
       if (!result.success) throw new Error(result.error.issues[0]?.message ?? '入力内容を確認してください')
-      const payload = result.data as Record<string, unknown>
+      const payload = result.data as TalentSubmissionPayload
       if ('endDate' in payload && payload.endDate === '') payload.endDate = null
       if ('expiresOn' in payload && payload.expiresOn === '') payload.expiresOn = null
       if ('credentialReference' in payload && payload.credentialReference === '') payload.credentialReference = null
@@ -85,8 +99,13 @@ export function TalentSubmissionFormPage() {
   }
   const run = (action: 'save' | 'submit') => handleSubmit((values) => mutation.mutate({ action, values }))()
 
+  if (publicId && existingQuery.isLoading) return <section className="card" role="status"><p>申請内容を読み込んでいます…</p></section>
+  if (publicId && (existingQuery.isError || existingQuery.data && !existing)) return <section className="card" role="alert"><p className="error-banner">申請内容を取得できませんでした。</p></section>
+  if (publicId && existing && !['DRAFT', 'RETURNED'].includes(existing.status)) return <section className="card" role="alert"><p className="error-banner">{talentSubmissionStatusLabels[existing.status]}の申請は編集できません。</p><Link className="text-link" to={talentCategoryRoutes[talentType]}>一覧へ戻る</Link></section>
+  if (publicId && existing && !draft) return <section className="card" role="status"><p>申請内容を読み込んでいます…</p></section>
+
   return <>
-    <div className="page-heading"><div><span className="eyebrow">タレント情報</span><h1>{label}を登録</h1><p>必要事項を入力し、任意の根拠ファイルを添付して直属上長へ提出します</p></div></div>
+    <div className="page-heading"><div><span className="eyebrow">タレント情報</span><h1>{publicId ? `${label}申請を編集` : `${label}を登録`}</h1><p>必要事項を入力し、任意の根拠ファイルを添付して直属上長へ提出します</p></div></div>
     <section className="card talent-form">
       {talentType !== 'CAREER' && <label>{label}<select {...register('masterPublicId')}><option value="">選択してください</option>{masterQuery.data?.map((item) => <option key={item.publicId} value={item.publicId}>{item.name}</option>)}</select></label>}
       {(talentType === 'SKILL' || talentType === 'KNOWLEDGE') && <label>習熟度（1～5）<input type="number" min={1} max={5} {...register('level')} /></label>}
@@ -94,10 +113,37 @@ export function TalentSubmissionFormPage() {
       {(talentType === 'SKILL' || talentType === 'KNOWLEDGE') && <label>根拠<textarea maxLength={1000} {...register('evidence')} /></label>}
       {talentType === 'CAREER' && <><label>案件名<input maxLength={150} {...register('projectName')} /></label><label>業界<input maxLength={100} {...register('industry')} /></label><label>役割<input maxLength={100} {...register('roleName')} /></label><label>開始日<input type="date" {...register('startDate')} /></label><label>終了日<input type="date" {...register('endDate')} /></label><label>概要<textarea maxLength={1000} {...register('summary')} /></label><label>成果<textarea maxLength={1500} {...register('achievements')} /></label><label>利用技術<textarea maxLength={1000} {...register('technologies')} /></label></>}
       {talentType === 'CERTIFICATION' && <><label>取得日<input type="date" {...register('acquiredOn')} /></label><label>有効期限<input type="date" {...register('expiresOn')} /></label><label>資格番号<input maxLength={100} {...register('credentialReference')} /></label></>}
+      {publicId && <p className="notice">既存の添付資料一覧は表示できません。差戻し後に必要な資料は再度添付してください。</p>}
       <label className="reason-box">根拠資料（任意）<small>PDF/JPEG/PNG、3件まで、1件5MB以内</small><input aria-label="根拠資料（任意）" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple onChange={(event) => selectFiles(event.target.files)} /></label>
       {draft && <p className="notice">状態: {talentSubmissionStatusLabels[draft.status]} / 第{draft.revisionNo}版</p>}
-      {message && <div role="status" className={mutation.isError ? 'error-banner' : 'success-banner'}>{message}</div>}
-      <div className="form-actions"><Link className="secondary-button" to={categoryRoutes[talentType]}>戻る</Link><button className="secondary-button" disabled={mutation.isPending} onClick={() => run('save')}>下書き保存</button><button className="primary-button" disabled={mutation.isPending} onClick={() => run('submit')}>直属上長へ申請</button></div>
+      {message && <div role={mutation.isError ? 'alert' : 'status'} className={mutation.isError ? 'error-banner' : 'success-banner'}>{message}</div>}
+      <div className="form-actions"><Link className="secondary-button" to={talentCategoryRoutes[talentType]}>戻る</Link><button className="secondary-button" disabled={mutation.isPending} onClick={() => run('save')}>下書き保存</button><button className="primary-button" disabled={mutation.isPending} onClick={() => run('submit')}>直属上長へ申請</button></div>
     </section>
   </>
+}
+
+function toFormValues(payload: TalentSubmissionPayload): FormValues {
+  return {
+    ...initialValues,
+    masterPublicId: text(payload.masterPublicId),
+    level: text(payload.level, '3'),
+    yearsExperience: text(payload.yearsExperience, '0'),
+    lastUsedOn: text(payload.lastUsedOn),
+    evidence: text(payload.evidence),
+    projectName: text(payload.projectName),
+    industry: text(payload.industry),
+    roleName: text(payload.roleName),
+    startDate: text(payload.startDate),
+    endDate: text(payload.endDate),
+    summary: text(payload.summary),
+    achievements: text(payload.achievements),
+    technologies: text(payload.technologies),
+    acquiredOn: text(payload.acquiredOn),
+    expiresOn: text(payload.expiresOn),
+    credentialReference: text(payload.credentialReference),
+  }
+}
+
+function text(value: string | number | null | undefined, fallback = '') {
+  return value === null || value === undefined ? fallback : String(value)
 }

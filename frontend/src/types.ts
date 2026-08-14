@@ -207,6 +207,12 @@ export const talentSubmissionTypeLabels: Record<TalentSubmissionType, string> = 
   CAREER: '業務経歴',
   CERTIFICATION: '資格',
 }
+export const talentCategoryRoutes: Record<TalentSubmissionType, string> = {
+  SKILL: '/skills',
+  KNOWLEDGE: '/skills',
+  CAREER: '/careers',
+  CERTIFICATION: '/certifications',
+}
 export const talentSubmissionStatusLabels: Record<TalentSubmissionStatus, string> = {
   DRAFT: '下書き',
   SUBMITTED: '申請中',
@@ -218,13 +224,32 @@ export const talentVerificationStatusLabels: Record<string, string> = {
   VERIFIED: '確認済み',
 }
 export type TalentMasterChoice = { publicId: string; code: string; name: string }
+export type TalentSubmissionPayload = Partial<{
+  masterPublicId: string
+  level: number
+  yearsExperience: number
+  lastUsedOn: string
+  evidence: string
+  projectName: string
+  industry: string
+  roleName: string
+  startDate: string
+  endDate: string | null
+  summary: string
+  achievements: string
+  technologies: string
+  acquiredOn: string
+  expiresOn: string | null
+  credentialReference: string | null
+}>
 export type TalentSubmission = {
   publicId: string; logicalPublicId: string; type: TalentSubmissionType; revisionNo: number
   status: TalentSubmissionStatus; version: number; returnReason: string | null
-  payload: Record<string, unknown>; submittedAt: string | null; decidedAt: string | null
+  payload: TalentSubmissionPayload; submittedAt: string | null; decidedAt: string | null
 }
 export type ManagerTalentItem = { publicId: string; type: TalentSubmissionType; status: TalentSubmissionStatus; version: number; submittedAt: string; employeePublicId: string; employeeName: string }
-export type ManagerTalentDetail = { submission: TalentSubmission; employee: { publicId: string; displayName: string }; approvedPredecessorPayload: Record<string, unknown> | null; attachments: Array<{ publicId: string; fileName: string; contentType: string; sizeBytes: number; scanStatus: string }>; events: Array<{ action: string; fromStatus: string | null; toStatus: string; reason: string | null; occurredAt: string }> }
+export type TalentAttachment = { publicId: string; fileName: string; contentType: string; sizeBytes: number; scanStatus: string }
+export type ManagerTalentDetail = { submission: TalentSubmission; employee: { publicId: string; displayName: string }; approvedPredecessorPayload: TalentSubmissionPayload | null; attachments: TalentAttachment[]; events: Array<{ action: string; fromStatus: string | null; toStatus: string; reason: string | null; occurredAt: string }> }
 export type MasterRequest = {
   publicId: string
   type: string

@@ -1,10 +1,10 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
-import type { TalentProfile, User } from '../types'
+import type { TalentProfile, TalentSubmission, User } from '../types'
 
 const { apiMock, useAuthMock } = vi.hoisted(() => ({ apiMock: vi.fn(), useAuthMock: vi.fn() }))
 vi.mock('../features/auth/auth-context', () => ({ useAuth: useAuthMock }))
@@ -74,6 +74,50 @@ describe('タレント情報の種類別ルート', () => {
     expect(screen.queryByText('基幹刷新')).not.toBeInTheDocument()
   })
 
+  it('承認済みプロフィールと手続き中・差戻し申請を分けて再開導線を表示する', async () => {
+    const draft = submission('DRAFT', 'DRAFT-1', 'CHAIN-1', 1)
+    const submitted = submission('SUBMITTED', 'SUBMITTED-1', 'CHAIN-2', 1)
+    const returned = { ...submission('RETURNED', 'RETURNED-1', 'CHAIN-3', 2), returnReason: '根拠を追記してください' }
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/v1/notifications/unread-count') return Promise.resolve({ unreadCount: 0 })
+      if (path === '/api/v1/employees/EMPLOYEE-1/talent-profile') return Promise.resolve(profile)
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([draft, submitted, returned])
+      if (path === '/api/v1/talent-submissions/me?type=KNOWLEDGE') return Promise.resolve([])
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      return Promise.resolve([])
+    })
+    renderAt('/skills')
+
+    expect(await screen.findByText('Java', undefined, asyncWait)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '手続き中' })).toBeInTheDocument()
+    expect(screen.getByText('下書き')).toBeInTheDocument()
+    expect(screen.getByText('申請中')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '差戻し' })).toBeInTheDocument()
+    expect(screen.getByText(/差戻し理由:/)).toHaveTextContent('根拠を追記してください')
+    expect(screen.getByRole('link', { name: '編集を再開' })).toHaveAttribute('href', '/talent/SKILL/DRAFT-1/edit')
+    expect(screen.getByRole('link', { name: '修正して再申請' })).toHaveAttribute('href', '/talent/SKILL/RETURNED-1/edit')
+    expect(screen.getAllByRole('link', { name: '履歴を見る' })[0]).toHaveAttribute('href', '/talent/CHAIN-1/history')
+    expect(screen.queryByText(/\bDRAFT\b|\bSUBMITTED\b|\bRETURNED\b/)).not.toBeInTheDocument()
+  })
+
+  it('既存下書きの再開リンクから編集routeへ移動して同じ申請を読み込む', async () => {
+    const draft = submission('DRAFT', 'DRAFT-1', 'CHAIN-1', 1)
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/v1/notifications/unread-count') return Promise.resolve({ unreadCount: 0 })
+      if (path === '/api/v1/employees/EMPLOYEE-1/talent-profile') return Promise.resolve(profile)
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([draft])
+      if (path === '/api/v1/talent-submissions/me?type=KNOWLEDGE') return Promise.resolve([])
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      return Promise.resolve([])
+    })
+    renderAt('/skills')
+
+    fireEvent.click(await screen.findByRole('link', { name: '編集を再開' }, asyncWait))
+
+    await waitFor(() => expect(screen.getByTestId('current-path').textContent).toBe('/talent/SKILL/DRAFT-1/edit'), asyncWait)
+    expect(await screen.findByDisplayValue('既存の根拠', undefined, asyncWait)).toBeInTheDocument()
+  })
+
   it.each([
     ['/skills/edit', '/skills', 'スキル'],
     ['/careers/edit', '/careers', '業務経歴'],
@@ -99,16 +143,18 @@ describe('タレント情報の種類別ルート', () => {
       : new Promise(() => undefined))
     renderAt('/skills')
 
-    expect(screen.getByText('タレント情報を読み込んでいます…')).toBeInTheDocument()
+    expect(screen.getByText('タレント情報を読み込んでいます…').closest('[role="status"]')).toBeInTheDocument()
   })
 
   it('プロフィールを取得できない場合は日本語エラーを表示する', async () => {
-    apiMock.mockImplementation((path: string) => path === '/api/v1/notifications/unread-count'
-      ? Promise.resolve({ unreadCount: 0 })
-      : Promise.reject(new Error('取得失敗')))
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/v1/notifications/unread-count') return Promise.resolve({ unreadCount: 0 })
+      if (path.startsWith('/api/v1/talent-submissions/me?type=')) return Promise.resolve([])
+      return Promise.reject(new Error('取得失敗'))
+    })
     renderAt('/careers')
 
-    expect(await screen.findByText('業務経歴を取得できませんでした。', undefined, asyncWait)).toBeInTheDocument()
+    expect(await screen.findByRole('alert', undefined, asyncWait)).toHaveTextContent('業務経歴を取得できませんでした。')
   })
 
   it('未登録の区分ごとに空状態を表示する', async () => {
@@ -144,4 +190,19 @@ function renderAt(path: string) {
 function LocationProbe() {
   const location = useLocation()
   return <output data-testid="current-path">{location.pathname}</output>
+}
+
+function submission(status: TalentSubmission['status'], publicId: string, logicalPublicId: string, revisionNo: number): TalentSubmission {
+  return {
+    publicId,
+    logicalPublicId,
+    type: 'SKILL',
+    revisionNo,
+    status,
+    version: 4,
+    returnReason: null,
+    payload: { masterPublicId: 'MASTER-1', level: 4, yearsExperience: 5, lastUsedOn: '2026-08-01', evidence: '既存の根拠' },
+    submittedAt: status === 'DRAFT' ? null : '2026-08-14T00:00:00Z',
+    decidedAt: status === 'RETURNED' ? '2026-08-14T01:00:00Z' : null,
+  }
 }

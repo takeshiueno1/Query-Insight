@@ -3,14 +3,28 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '../lib/api'
+import type { Problem, TalentSubmission, TalentSubmissionType } from '../types'
 import { TalentSubmissionFormPage } from './TalentSubmissionFormPage'
+import { TalentSubmissionHistoryPage } from './TalentSubmissionHistoryPage'
 
 const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
-vi.mock('../lib/api', () => ({ api: apiMock, ApiError: class extends Error {} }))
+vi.mock('../lib/api', () => ({
+  api: apiMock,
+  ApiError: class extends Error {
+    problem: { detail: string }
+    constructor(problem: { detail: string }) { super(problem.detail); this.problem = problem }
+  },
+}))
 
 function renderType(type: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<MemoryRouter initialEntries={[`/talent/new/${type}`]}><QueryClientProvider client={client}><Routes><Route path="/talent/new/:type" element={<TalentSubmissionFormPage />} /></Routes></QueryClientProvider></MemoryRouter>)
+}
+
+function renderExisting(type: string, publicId: string) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<MemoryRouter initialEntries={[`/talent/${type}/${publicId}/edit`]}><QueryClientProvider client={client}><Routes><Route path="/talent/:type/:publicId/edit" element={<TalentSubmissionFormPage />} /></Routes></QueryClientProvider></MemoryRouter>)
 }
 
 describe('TalentSubmissionFormPage', () => {
@@ -72,4 +86,139 @@ describe('TalentSubmissionFormPage', () => {
     expect(screen.getByText(/状態: 申請中/)).toBeInTheDocument()
     expect(screen.queryByText('SUBMITTED')).not.toBeInTheDocument()
   })
+
+  it('既存下書きのpayloadとversionを読み込み同じpublicIdへ保存する', async () => {
+    const draft = existingSubmission('DRAFT', 'DRAFT-1', 'CHAIN-1', 1, 7)
+    let updateRequest: RequestInit | undefined
+    let createCalled = false
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([draft])
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      if (path === '/api/v1/talent-submissions/DRAFT-1') { updateRequest = init; return Promise.resolve({ ...draft, version: 8 }) }
+      if (path === '/api/v1/talent-submissions/SKILL' && init?.method === 'POST') createCalled = true
+      return Promise.resolve([])
+    })
+    renderExisting('SKILL', 'DRAFT-1')
+
+    expect(await screen.findByDisplayValue('既存の根拠')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('4')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '下書き保存' }))
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('下書きを保存しました'))
+    expect(updateRequest?.method).toBe('PUT')
+    expect(JSON.parse(String(updateRequest?.body))).toMatchObject({ version: 7, payload: { masterPublicId: 'MASTER-1', evidence: '既存の根拠' } })
+    expect(createCalled).toBe(false)
+  })
+
+  it('差戻し申請は既存publicIdを更新し返された同一chainの新revisionを提出する', async () => {
+    const returned = { ...existingSubmission('RETURNED', 'RETURNED-1', 'CHAIN-1', 2, 5), returnReason: '根拠を追記してください' }
+    const revised = existingSubmission('DRAFT', 'DRAFT-2', 'CHAIN-1', 3, 0)
+    const submitted = { ...revised, status: 'SUBMITTED' as const, version: 1 }
+    let updateRequest: RequestInit | undefined
+    let submitRequest: RequestInit | undefined
+    let createCalled = false
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([returned])
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      if (path === '/api/v1/talent-submissions/RETURNED-1') { updateRequest = init; return Promise.resolve(revised) }
+      if (path === '/api/v1/talent-submissions/DRAFT-2/submit') { submitRequest = init; return Promise.resolve(submitted) }
+      if (path === '/api/v1/talent-submissions/SKILL' && init?.method === 'POST') createCalled = true
+      return Promise.resolve([])
+    })
+    renderExisting('SKILL', 'RETURNED-1')
+
+    expect(await screen.findByDisplayValue('既存の根拠')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('直属上長へ申請しました'))
+    expect(updateRequest?.method).toBe('PUT')
+    expect(JSON.parse(String(updateRequest?.body))).toMatchObject({ version: 5 })
+    expect(submitRequest?.method).toBe('POST')
+    expect(JSON.parse(String(submitRequest?.body))).toEqual({ version: 0 })
+    expect(createCalled).toBe(false)
+    expect(screen.getByText(/第3版/)).toBeInTheDocument()
+  })
+
+  it('既存申請の取得中と取得失敗を支援技術へ通知する', async () => {
+    apiMock.mockImplementation((path: string) => path === '/api/v1/talent-masters/SKILL'
+      ? Promise.resolve([])
+      : new Promise(() => undefined))
+    const { unmount } = renderExisting('SKILL', 'DRAFT-1')
+    expect(screen.getByRole('status')).toHaveTextContent('申請内容を読み込んでいます…')
+    unmount()
+
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([])
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.reject(new Error('取得失敗'))
+      return Promise.resolve([])
+    })
+    renderExisting('SKILL', 'DRAFT-1')
+    expect(await screen.findByRole('alert')).toHaveTextContent('申請内容を取得できませんでした。')
+  })
+
+  it('版競合のAPI詳細を利用者へ表示する', async () => {
+    const draft = existingSubmission('DRAFT', 'DRAFT-1', 'CHAIN-1', 1, 7)
+    const problem: Problem = { title: '競合', detail: '別の操作で更新されています。再読み込みしてください。', status: 409, code: 'OPTIMISTIC_LOCK_CONFLICT' }
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([draft])
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      if (path === '/api/v1/talent-submissions/DRAFT-1') return Promise.reject(new ApiError(problem))
+      return Promise.resolve([])
+    })
+    renderExisting('SKILL', 'DRAFT-1')
+    await screen.findByDisplayValue('既存の根拠')
+
+    fireEvent.click(screen.getByRole('button', { name: '下書き保存' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(problem.detail)
+  })
 })
+
+describe('TalentSubmissionHistoryPage', () => {
+  beforeEach(() => apiMock.mockReset())
+  afterEach(cleanup)
+
+  it.each([
+    ['SKILL', '/skills'], ['KNOWLEDGE', '/skills'], ['CAREER', '/careers'], ['CERTIFICATION', '/certifications'],
+  ] as const)('%sの履歴から対応するカテゴリ画面へ戻る', async (type, backPath) => {
+    const item = historySubmission(type)
+    apiMock.mockImplementation((path: string) => String(path).includes('/history') ? Promise.resolve([item]) : Promise.resolve([]))
+    renderHistory()
+
+    expect(await screen.findByRole('link', { name: /一覧へ戻る/ })).toHaveAttribute('href', backPath)
+    expect(screen.getByText(/第2版.*差戻し/)).toBeInTheDocument()
+    expect(screen.queryByText('RETURNED')).not.toBeInTheDocument()
+  })
+
+  it('履歴payloadを日本語の構造化項目で表示しJSONと内部keyを見せない', async () => {
+    apiMock.mockImplementation((path: string) => String(path).includes('/history') ? Promise.resolve([historySubmission('CAREER')]) : Promise.resolve([]))
+    renderHistory()
+
+    expect(await screen.findByText('基幹刷新')).toBeInTheDocument()
+    expect(screen.getByText('案件名')).toBeInTheDocument()
+    expect(screen.queryByText(/projectName|"projectName"|\{/)).not.toBeInTheDocument()
+  })
+})
+
+function renderHistory() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<MemoryRouter initialEntries={['/talent/CHAIN-1/history']}><QueryClientProvider client={client}><Routes><Route path="/talent/:logicalPublicId/history" element={<TalentSubmissionHistoryPage />} /></Routes></QueryClientProvider></MemoryRouter>)
+}
+
+function existingSubmission(status: TalentSubmission['status'], publicId: string, logicalPublicId: string, revisionNo: number, version: number): TalentSubmission {
+  return {
+    publicId, logicalPublicId, revisionNo, version, status, type: 'SKILL', returnReason: null,
+    payload: { masterPublicId: 'MASTER-1', level: 4, yearsExperience: 5, lastUsedOn: '2026-08-01', evidence: '既存の根拠' },
+    submittedAt: status === 'DRAFT' ? null : '2026-08-14T00:00:00Z', decidedAt: null,
+  }
+}
+
+function historySubmission(type: TalentSubmissionType): TalentSubmission {
+  const payloads: Record<TalentSubmissionType, Record<string, unknown>> = {
+    SKILL: { masterPublicId: 'MASTER-1', level: 4, yearsExperience: 5, lastUsedOn: '2026-08-01', evidence: '根拠' },
+    KNOWLEDGE: { masterPublicId: 'MASTER-2', level: 3, evidence: '根拠' },
+    CAREER: { projectName: '基幹刷新', industry: '製造', roleName: '担当者', startDate: '2025-04-01', endDate: null, summary: '刷新を担当', achievements: '完了', technologies: 'Java' },
+    CERTIFICATION: { masterPublicId: 'MASTER-3', acquiredOn: '2024-04-01', expiresOn: null, credentialReference: null },
+  }
+  return { publicId: 'RETURNED-1', logicalPublicId: 'CHAIN-1', revisionNo: 2, version: 5, status: 'RETURNED', type, returnReason: '根拠を追記してください', payload: payloads[type], submittedAt: '2026-08-14T00:00:00Z', decidedAt: '2026-08-14T01:00:00Z' }
+}
