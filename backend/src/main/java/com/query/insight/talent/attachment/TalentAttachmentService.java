@@ -50,34 +50,37 @@ public class TalentAttachmentService {
     private UploadOutcome uploadInTransaction(String employeePublicId, String submissionPublicId,
             long submissionVersion, MultipartFile file) {
         Submission submission = editableSubmission(employeePublicId, submissionPublicId, submissionVersion);
-        if (attachmentCount(submission.id()) >= MAX_FILES) {
-            throw badRequest("ATTACHMENT_LIMIT", "添付は1申請につき3ファイルまでです");
-        }
         byte[] content = content(file);
         String contentType = validateContent(file, content);
-        String publicId = PublicIdGenerator.next();
         String fileName = safeFileName(file.getOriginalFilename(), contentType);
         String sha256 = sha256(content);
-        Instant now = Instant.now();
-        try {
-            jdbc.sql("""
-                    INSERT INTO talent_attachments(public_id,submission_id,file_name,content_type,size_bytes,sha256,
-                      scan_status,content,scan_attempts,created_at)
-                    VALUES (:publicId,:submissionId,:fileName,:contentType,:sizeBytes,:sha256,
-                      'PENDING',:content,0,:now)
-                    """)
-                    .param("publicId", publicId)
-                    .param("submissionId", submission.id())
-                    .param("fileName", fileName)
-                    .param("contentType", contentType)
-                    .param("sizeBytes", content.length)
-                    .param("sha256", sha256)
-                    .param("content", content)
-                    .param("now", Timestamp.from(now))
-                    .update();
-        } catch (org.springframework.dao.DuplicateKeyException exception) {
-            throw new ApiException(HttpStatus.CONFLICT, "ATTACHMENT_DUPLICATE", "同じファイルが既に添付されています");
+        Submission locked = lockSubmission(submission.id());
+        if (!Set.of("DRAFT", "RETURNED").contains(locked.status())) throw conflict();
+        ExistingAttachment existing = findByHash(locked.id(), sha256);
+        if (existing != null) {
+            return new UploadOutcome(existing.upload(locked.version()), null);
         }
+        if (locked.version() != submissionVersion) throw conflict();
+        if (attachmentCount(locked.id()) >= MAX_FILES) {
+            throw badRequest("ATTACHMENT_LIMIT", "添付は1申請につき3ファイルまでです");
+        }
+        String publicId = PublicIdGenerator.next();
+        Instant now = Instant.now();
+        jdbc.sql("""
+                INSERT INTO talent_attachments(public_id,submission_id,file_name,content_type,size_bytes,sha256,
+                  scan_status,content,scan_attempts,created_at)
+                VALUES (:publicId,:submissionId,:fileName,:contentType,:sizeBytes,:sha256,
+                  'PENDING',:content,0,:now)
+                """)
+                .param("publicId", publicId)
+                .param("submissionId", locked.id())
+                .param("fileName", fileName)
+                .param("contentType", contentType)
+                .param("sizeBytes", content.length)
+                .param("sha256", sha256)
+                .param("content", content)
+                .param("now", Timestamp.from(now))
+                .update();
         FileScanClient.Result result = scanner.scan(content);
         if (result == FileScanClient.Result.CLEAN) {
             jdbc.sql("""
@@ -101,7 +104,7 @@ public class TalentAttachmentService {
                     new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ATTACHMENT_SCAN_UNAVAILABLE",
                             "ファイル検査を完了できませんでした。時間をおいて再試行します"));
         }
-        long nextVersion = incrementSubmissionVersion(submission, submissionVersion, now);
+        long nextVersion = incrementSubmissionVersion(locked, submissionVersion, now);
         return new UploadOutcome(new Upload(publicId, fileName, contentType, content.length, result.name(), nextVersion),
                 null);
     }
@@ -212,6 +215,25 @@ public class TalentAttachmentService {
                 .param("id", submissionId).query(Integer.class).single();
     }
 
+    private Submission lockSubmission(long submissionId) {
+        return jdbc.sql("SELECT id,status,version FROM talent_submissions WHERE id=:id FOR UPDATE")
+                .param("id", submissionId)
+                .query((rs, row) -> new Submission(rs.getLong("id"), rs.getString("status"),
+                        rs.getLong("version")))
+                .single();
+    }
+
+    private ExistingAttachment findByHash(long submissionId, String sha256) {
+        return jdbc.sql("""
+                SELECT public_id,file_name,content_type,size_bytes,scan_status
+                FROM talent_attachments WHERE submission_id=:submissionId AND sha256=:sha256
+                """).param("submissionId", submissionId).param("sha256", sha256)
+                .query((rs, row) -> new ExistingAttachment(rs.getString("public_id").trim(),
+                        rs.getString("file_name"), rs.getString("content_type"), rs.getLong("size_bytes"),
+                        rs.getString("scan_status")))
+                .optional().orElse(null);
+    }
+
     private byte[] content(MultipartFile file) {
         if (file == null || file.isEmpty()) throw badRequest("ATTACHMENT_EMPTY", "ファイルを選択してください");
         if (file.getSize() > MAX_FILE_SIZE) throw badRequest("ATTACHMENT_TOO_LARGE", "ファイルは5MB以内にしてください");
@@ -319,6 +341,13 @@ public class TalentAttachmentService {
     }
 
     private record Submission(long id, String status, long version) {
+    }
+
+    private record ExistingAttachment(String publicId, String fileName, String contentType, long sizeBytes,
+            String scanStatus) {
+        Upload upload(long submissionVersion) {
+            return new Upload(publicId, fileName, contentType, sizeBytes, scanStatus, submissionVersion);
+        }
     }
 
     private record Attachment(String fileName, String contentType, byte[] content, String scanStatus,

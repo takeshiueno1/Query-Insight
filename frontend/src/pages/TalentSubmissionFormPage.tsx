@@ -13,6 +13,15 @@ type FormValues = {
   credentialReference: string
 }
 
+type AttachmentUpload = {
+  publicId: string
+  fileName: string
+  contentType: string
+  sizeBytes: number
+  scanStatus: 'PENDING' | 'CLEAN' | 'INFECTED' | 'ERROR'
+  submissionVersion: number
+}
+
 const initialValues: FormValues = {
   masterPublicId: '', level: '3', yearsExperience: '0', lastUsedOn: '', evidence: '',
   projectName: '', industry: '', roleName: '', startDate: '', endDate: '', summary: '', achievements: '',
@@ -65,6 +74,21 @@ export function TalentSubmissionFormPage() {
     if (publicId !== submission.publicId) navigate(`/talent/${talentType}/${submission.publicId}/edit`, { replace: true })
   }
 
+  const recoverSubmission = async (failed: TalentSubmission | null) => {
+    if (!failed) return
+    try {
+      const submissions = await api<TalentSubmission[]>(`/api/v1/talent-submissions/me?type=${talentType}`)
+      const recovered = submissions
+        .filter((item) => item.logicalPublicId === failed.logicalPublicId)
+        .sort((left, right) => right.revisionNo - left.revisionNo || right.version - left.version)[0]
+      if (!recovered || recovered.revisionNo < failed.revisionNo
+          || recovered.revisionNo === failed.revisionNo && recovered.version < failed.version) return
+      persistSubmission(recovered)
+    } catch {
+      // The original operation error remains the actionable message; recovery is best effort.
+    }
+  }
+
   const mutation = useMutation({
     mutationFn: async ({ action, values }: { action: 'save' | 'submit'; values: FormValues }) => {
       const result = schemas[talentType].safeParse(values)
@@ -74,31 +98,44 @@ export function TalentSubmissionFormPage() {
       if ('expiresOn' in payload && payload.expiresOn === '') payload.expiresOn = null
       if ('credentialReference' in payload && payload.credentialReference === '') payload.credentialReference = null
       let current = draft
-      current = current
-        ? await api<TalentSubmission>(`/api/v1/talent-submissions/${current.publicId}`, { method: 'PUT', body: JSON.stringify({ version: current.version, payload }) })
-        : await api<TalentSubmission>(`/api/v1/talent-submissions/${talentType}`, { method: 'POST', body: JSON.stringify({ payload }) })
+      try {
+        current = current
+          ? await api<TalentSubmission>(`/api/v1/talent-submissions/${current.publicId}`, { method: 'PUT', body: JSON.stringify({ version: current.version, payload }) })
+          : await api<TalentSubmission>(`/api/v1/talent-submissions/${talentType}`, { method: 'POST', body: JSON.stringify({ payload }) })
+      } catch (error) {
+        await recoverSubmission(current)
+        throw error
+      }
       persistSubmission(current)
       let uploadedCount = 0
       for (const file of files) {
         const form = new FormData()
         form.append('file', file)
         form.append('version', String(current.version))
-        let uploaded: { submissionVersion: number }
+        let uploaded: AttachmentUpload
         try {
-          uploaded = await api<{ submissionVersion: number }>(`/api/v1/talent-submissions/${current.publicId}/attachments`, { method: 'POST', body: form })
+          uploaded = await api<AttachmentUpload>(`/api/v1/talent-submissions/${current.publicId}/attachments`, { method: 'POST', body: form })
         } catch (error) {
+          await recoverSubmission(current)
           const saved = uploadedCount > 0 ? '成功済みの添付は保存されています。' : '下書きは保存されています。'
           throw new Error(`${saved}再実行すると未完了の添付から続行します。${errorDetail(error)}`)
         }
         current = { ...current, version: uploaded.submissionVersion }
         persistSubmission(current)
         setFiles((pending) => pending.filter((item) => item !== file))
+        if (uploaded.scanStatus === 'INFECTED') {
+          throw new Error('安全でない添付ファイルが隔離されました。申請は提出されていません。')
+        }
+        if (uploaded.scanStatus !== 'CLEAN') {
+          throw new Error('添付ファイルは保存され、検査完了を待っています。申請は提出されていません。')
+        }
         uploadedCount += 1
       }
       if (action === 'submit') {
         try {
           current = await api<TalentSubmission>(`/api/v1/talent-submissions/${current.publicId}/submit`, { method: 'POST', body: JSON.stringify({ version: current.version }) })
         } catch (error) {
+          await recoverSubmission(current)
           throw new Error(`下書きは保存されています。${errorDetail(error)}`)
         }
         persistSubmission(current)

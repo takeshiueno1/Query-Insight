@@ -135,8 +135,8 @@ describe('TalentSubmissionFormPage', () => {
     expect(await screen.findByDisplayValue('既存の根拠')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
 
+    await waitFor(() => expect(updateRequest?.method).toBe('PUT'))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('直属上長へ申請しました'))
-    expect(updateRequest?.method).toBe('PUT')
     expect(JSON.parse(String(updateRequest?.body))).toMatchObject({ version: 5 })
     expect(submitRequest?.method).toBe('POST')
     expect(JSON.parse(String(submitRequest?.body))).toEqual({ version: 0 })
@@ -204,7 +204,9 @@ describe('TalentSubmissionFormPage', () => {
         uploadedFiles.push((form.get('file') as File).name)
         uploadVersions.push(String(form.get('version')))
         if (uploadedFiles.join(',') === 'first.pdf,second.pdf') return Promise.reject(new Error('2件目の添付に失敗しました'))
-        return Promise.resolve({ submissionVersion: uploadedFiles.length === 1 ? 1 : 3 })
+        return Promise.resolve({ publicId: `ATTACHMENT-${uploadedFiles.length}`, fileName: (form.get('file') as File).name,
+          contentType: 'application/pdf', sizeBytes: 3, scanStatus: 'CLEAN',
+          submissionVersion: uploadedFiles.length === 1 ? 1 : 3 })
       }
       if (path === '/api/v1/talent-submissions/DRAFT-2/submit') return Promise.resolve(submitted)
       return Promise.resolve([])
@@ -230,6 +232,107 @@ describe('TalentSubmissionFormPage', () => {
     expect(uploadVersions).toEqual(['0', '1', '2'])
   })
 
+  it('CLEAN保存後に応答を失っても最新versionを再取得して同一添付を安全に再照合する', async () => {
+    let serverDraft = existingSubmission('DRAFT', 'DRAFT-1', 'CHAIN-1', 1, 0)
+    const updateVersions: number[] = []
+    const uploadVersions: string[] = []
+    let uploadCalls = 0
+    let submitVersion: number | undefined
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([serverDraft])
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      if (path === '/api/v1/talent-submissions/DRAFT-1' && init?.method === 'PUT') {
+        const version = JSON.parse(String(init.body)).version as number
+        updateVersions.push(version)
+        serverDraft = { ...serverDraft, version: version + 1 }
+        return Promise.resolve(serverDraft)
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments') {
+        const form = init?.body as FormData
+        uploadVersions.push(String(form.get('version')))
+        uploadCalls += 1
+        if (uploadCalls === 1) {
+          serverDraft = { ...serverDraft, version: 2 }
+          return Promise.reject(new Error('応答を受信できませんでした'))
+        }
+        return Promise.resolve({ publicId: 'ATTACHMENT-1', fileName: 'lost.pdf', contentType: 'application/pdf', sizeBytes: 3, scanStatus: 'CLEAN', submissionVersion: serverDraft.version })
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-1/submit') {
+        submitVersion = JSON.parse(String(init?.body)).version
+        return Promise.resolve({ ...serverDraft, status: 'SUBMITTED', version: serverDraft.version + 1 })
+      }
+      return Promise.resolve([])
+    })
+    renderExisting('SKILL', 'DRAFT-1')
+    await screen.findByDisplayValue('既存の根拠')
+    fireEvent.change(screen.getByLabelText('根拠資料（任意）'), { target: { files: [
+      new File(['pdf'], 'lost.pdf', { type: 'application/pdf' }),
+    ] } })
+
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('応答を受信できませんでした')
+
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('直属上長へ申請しました'))
+
+    expect(updateVersions).toEqual([0, 2])
+    expect(uploadVersions).toEqual(['1', '3'])
+    expect(uploadCalls).toBe(2)
+    expect(submitVersion).toBe(3)
+  })
+
+  it('scanner 503で保存されたERROR添付は再送せず検査待ちとして回復する', async () => {
+    let serverDraft = existingSubmission('DRAFT', 'DRAFT-1', 'CHAIN-1', 1, 0)
+    const updateVersions: number[] = []
+    const uploadVersions: string[] = []
+    const submitVersions: number[] = []
+    let uploadCalls = 0
+    const scanProblem: Problem = { title: '検査失敗', detail: 'ファイル検査を完了できませんでした。時間をおいて再試行します', status: 503, code: 'ATTACHMENT_SCAN_UNAVAILABLE' }
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([serverDraft])
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      if (path === '/api/v1/talent-submissions/DRAFT-1' && init?.method === 'PUT') {
+        const version = JSON.parse(String(init.body)).version as number
+        updateVersions.push(version)
+        serverDraft = { ...serverDraft, version: version + 1 }
+        return Promise.resolve(serverDraft)
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments') {
+        const form = init?.body as FormData
+        uploadVersions.push(String(form.get('version')))
+        uploadCalls += 1
+        return uploadCalls === 1
+          ? Promise.reject(new ApiError(scanProblem))
+          : Promise.resolve({ publicId: 'ATTACHMENT-1', fileName: 'scan.pdf', contentType: 'application/pdf', sizeBytes: 3, scanStatus: 'ERROR', submissionVersion: serverDraft.version })
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-1/submit') {
+        const version = JSON.parse(String(init?.body)).version as number
+        submitVersions.push(version)
+        return Promise.resolve({ ...serverDraft, status: 'SUBMITTED', version: version + 1 })
+      }
+      return Promise.resolve([])
+    })
+    renderExisting('SKILL', 'DRAFT-1')
+    await screen.findByDisplayValue('既存の根拠')
+    fireEvent.change(screen.getByLabelText('根拠資料（任意）'), { target: { files: [
+      new File(['pdf'], 'scan.pdf', { type: 'application/pdf' }),
+    ] } })
+
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('ファイル検査を完了できませんでした')
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('添付ファイルは保存され、検査完了を待っています'))
+    expect(submitVersions).toEqual([])
+
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('直属上長へ申請しました'))
+
+    expect(updateVersions).toEqual([0, 1, 2])
+    expect(uploadVersions).toEqual(['1', '2'])
+    expect(uploadCalls).toBe(2)
+    expect(submitVersions).toEqual([3])
+  })
+
   it('既存申請の取得中と取得失敗を支援技術へ通知する', async () => {
     apiMock.mockImplementation((path: string) => path === '/api/v1/talent-masters/SKILL'
       ? Promise.resolve([])
@@ -250,8 +353,9 @@ describe('TalentSubmissionFormPage', () => {
   it('版競合のAPI詳細を利用者へ表示する', async () => {
     const draft = existingSubmission('DRAFT', 'DRAFT-1', 'CHAIN-1', 1, 7)
     const problem: Problem = { title: '競合', detail: '別の操作で更新されています。再読み込みしてください。', status: 409, code: 'OPTIMISTIC_LOCK_CONFLICT' }
+    let mineCalls = 0
     apiMock.mockImplementation((path: string) => {
-      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([draft])
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') { mineCalls += 1; return Promise.resolve([draft]) }
       if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
       if (path === '/api/v1/talent-submissions/DRAFT-1') return Promise.reject(new ApiError(problem))
       return Promise.resolve([])
@@ -262,6 +366,7 @@ describe('TalentSubmissionFormPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '下書き保存' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(problem.detail)
+    expect(mineCalls).toBe(2)
   })
 })
 

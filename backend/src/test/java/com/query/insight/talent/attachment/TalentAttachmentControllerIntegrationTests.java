@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -38,6 +39,13 @@ class TalentAttachmentControllerIntegrationTests {
     private JdbcClient jdbc;
     @Autowired
     private TalentSubmissionRepository submissions;
+    @Autowired
+    private TalentAttachmentServiceIntegrationTests.FakeFileScanClient scanner;
+
+    @BeforeEach
+    void resetScanner() {
+        scanner.returnResult(FileScanClient.Result.CLEAN);
+    }
 
     @Test
     void ownerUploadsAndDownloadsCleanPdfWithSafeHeaders() throws Exception {
@@ -79,6 +87,30 @@ class TalentAttachmentControllerIntegrationTests {
         mvc.perform(get("/api/v1/talent-attachments/{id}", attachmentId)
                         .with(employeeJwt("QI0001", "ADMIN")))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void scannerUnavailableFirstReturns503AndReplayReturnsPersistedNonCleanAttachment() throws Exception {
+        var draft = createDraft();
+        byte[] pdf = "%PDF-1.4\n%%EOF".getBytes();
+        scanner.returnResult(FileScanClient.Result.ERROR);
+
+        mvc.perform(multipart("/api/v1/talent-submissions/{id}/attachments", draft.publicId())
+                        .file(new MockMultipartFile("file", "retry.pdf", "application/pdf", pdf))
+                        .param("version", "0").with(employeeJwt("QITEST", "GENERAL")))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("ATTACHMENT_SCAN_UNAVAILABLE"));
+
+        scanner.returnResult(FileScanClient.Result.CLEAN);
+        mvc.perform(multipart("/api/v1/talent-submissions/{id}/attachments", draft.publicId())
+                        .file(new MockMultipartFile("file", "retry.pdf", "application/pdf", pdf))
+                        .param("version", "0").with(employeeJwt("QITEST", "GENERAL")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scanStatus").value("ERROR"))
+                .andExpect(jsonPath("$.submissionVersion").value(0));
+        org.assertj.core.api.Assertions.assertThat(jdbc.sql(
+                        "SELECT COUNT(*) FROM talent_attachments WHERE submission_id=:id")
+                .param("id", draft.id()).query(Integer.class).single()).isEqualTo(1);
     }
 
     private TalentSubmissionRepository.Row createDraft() {
