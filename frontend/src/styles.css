@@ -67,6 +67,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .search-card { display:grid; grid-template-columns:1fr auto; gap:18px; align-items:end; padding:20px; margin-bottom:18px; }
 label { display:grid; gap:7px; color:#cbd5df; font-size:12px; font-weight:700; }
 label span { color:var(--yellow); }
+.talent-form-fields { border:0; padding:0; margin:0; min-width:0; }
 input, textarea, select { width:100%; background:#142436; color:#f3f6f9; border:1px solid #2c3e52; border-radius:6px; padding:11px 12px; }
 textarea { min-height:88px; resize:vertical; }
 .table-card { padding:0; overflow:hidden; }

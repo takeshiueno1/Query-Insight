@@ -34,13 +34,42 @@ describe('ManagerTalentApprovalDetailPage', () => {
 describe('ManagerTalentApprovalsPage', () => {
   afterEach(cleanup)
 
+  it('申請一覧の読込中を支援技術へ通知する', () => {
+    apiMock.mockReset().mockImplementation(() => new Promise(() => undefined))
+    renderManagerList()
+
+    expect(screen.getByRole('status')).toHaveTextContent('タレント申請を読み込んでいます')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('申請一覧の取得失敗を支援技術へ通知する', async () => {
+    apiMock.mockReset().mockRejectedValue(new Error('取得失敗'))
+    renderManagerList()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('タレント申請を取得できませんでした')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('対象申請がない場合は日本語の空状態を表示する', async () => {
+    apiMock.mockReset().mockResolvedValue([])
+    renderManagerList()
+
+    expect(await screen.findByText('確認待ちのタレント申請はありません。')).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
   it('申請種類を日本語で表示し内部type codeを見せない', async () => {
     apiMock.mockReset().mockResolvedValue([{ publicId: 'S1', type: 'KNOWLEDGE', status: 'SUBMITTED', version: 2, submittedAt: '2026-08-12T00:00:00Z', employeePublicId: 'E1', employeeName: 'テスト ユーザー' }])
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    render(<MemoryRouter><QueryClientProvider client={client}><ManagerTalentApprovalsPage /></QueryClientProvider></MemoryRouter>)
+    renderManagerList()
 
     expect(await screen.findByText('得意分野')).toBeInTheDocument()
+    expect(screen.getByRole('table')).toBeInTheDocument()
     expect(screen.queryByText('KNOWLEDGE')).not.toBeInTheDocument()
     expect(screen.queryByText('OFFICER APPROVAL')).not.toBeInTheDocument()
   })
 })
+
+function renderManagerList() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<MemoryRouter><QueryClientProvider client={client}><ManagerTalentApprovalsPage /></QueryClientProvider></MemoryRouter>)
+}

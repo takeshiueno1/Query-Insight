@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../lib/api'
 import type { Problem, TalentSubmission, TalentSubmissionType } from '../types'
@@ -19,12 +19,17 @@ vi.mock('../lib/api', () => ({
 
 function renderType(type: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<MemoryRouter initialEntries={[`/talent/new/${type}`]}><QueryClientProvider client={client}><Routes><Route path="/talent/new/:type" element={<TalentSubmissionFormPage />} /></Routes></QueryClientProvider></MemoryRouter>)
+  return render(<MemoryRouter initialEntries={[`/talent/new/${type}`]}><QueryClientProvider client={client}><Routes><Route path="/talent/new/:type" element={<TalentSubmissionFormPage />} /><Route path="/talent/:type/:publicId/edit" element={<TalentSubmissionFormPage />} /></Routes></QueryClientProvider></MemoryRouter>)
 }
 
 function renderExisting(type: string, publicId: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<MemoryRouter initialEntries={[`/talent/${type}/${publicId}/edit`]}><QueryClientProvider client={client}><Routes><Route path="/talent/:type/:publicId/edit" element={<TalentSubmissionFormPage />} /></Routes></QueryClientProvider></MemoryRouter>)
+  return render(<MemoryRouter initialEntries={[`/talent/${type}/${publicId}/edit`]}><QueryClientProvider client={client}><LocationProbe /><Routes><Route path="/talent/:type/:publicId/edit" element={<TalentSubmissionFormPage />} /></Routes></QueryClientProvider></MemoryRouter>)
+}
+
+function LocationProbe() {
+  const location = useLocation()
+  return <div data-testid="current-path">{location.pathname}</div>
 }
 
 describe('TalentSubmissionFormPage', () => {
@@ -137,6 +142,92 @@ describe('TalentSubmissionFormPage', () => {
     expect(JSON.parse(String(submitRequest?.body))).toEqual({ version: 0 })
     expect(createCalled).toBe(false)
     expect(screen.getByText(/第3版/)).toBeInTheDocument()
+  })
+
+  it('差戻し更新後にsubmitが失敗しても新DRAFTのpublicIdとversionで再試行する', async () => {
+    const returned = { ...existingSubmission('RETURNED', 'RETURNED-1', 'CHAIN-1', 2, 5), returnReason: '根拠を追記してください' }
+    const revised = existingSubmission('DRAFT', 'DRAFT-2', 'CHAIN-1', 3, 0)
+    const updated = { ...revised, version: 1 }
+    const submitted = { ...updated, status: 'SUBMITTED' as const, version: 2 }
+    const updateTargets: string[] = []
+    const submitVersions: number[] = []
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([returned])
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      if (init?.method === 'PUT') {
+        updateTargets.push(path)
+        return Promise.resolve(path.endsWith('/RETURNED-1') ? revised : updated)
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-2/submit') {
+        submitVersions.push(JSON.parse(String(init?.body)).version)
+        return submitVersions.length === 1 ? Promise.reject(new Error('申請処理に失敗しました')) : Promise.resolve(submitted)
+      }
+      return Promise.resolve([])
+    })
+    renderExisting('SKILL', 'RETURNED-1')
+    await screen.findByDisplayValue('既存の根拠')
+
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    const submitError = await screen.findByRole('alert')
+    expect(submitError).toHaveTextContent('下書きは保存されています。')
+    expect(submitError).toHaveTextContent('申請処理に失敗しました')
+    await waitFor(() => expect(screen.getByTestId('current-path')).toHaveTextContent('/talent/SKILL/DRAFT-2/edit'))
+
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('直属上長へ申請しました'))
+
+    expect(updateTargets).toEqual(['/api/v1/talent-submissions/RETURNED-1', '/api/v1/talent-submissions/DRAFT-2'])
+    expect(submitVersions).toEqual([0, 1])
+    expect(screen.getByText(/状態: 申請中/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '下書き保存' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '直属上長へ申請' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('根拠')).toBeDisabled()
+  })
+
+  it('添付途中で失敗しても成功済み添付を繰り返さず最新versionから再試行する', async () => {
+    const returned = { ...existingSubmission('RETURNED', 'RETURNED-1', 'CHAIN-1', 2, 5), returnReason: '根拠を追記してください' }
+    const revised = existingSubmission('DRAFT', 'DRAFT-2', 'CHAIN-1', 3, 0)
+    const updated = { ...revised, version: 2 }
+    const submitted = { ...updated, status: 'SUBMITTED' as const, version: 4 }
+    const updateVersions: number[] = []
+    const uploadedFiles: string[] = []
+    const uploadVersions: string[] = []
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([returned])
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      if (init?.method === 'PUT') {
+        updateVersions.push(JSON.parse(String(init.body)).version)
+        return Promise.resolve(path.endsWith('/RETURNED-1') ? revised : updated)
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-2/attachments') {
+        const form = init?.body as FormData
+        uploadedFiles.push((form.get('file') as File).name)
+        uploadVersions.push(String(form.get('version')))
+        if (uploadedFiles.join(',') === 'first.pdf,second.pdf') return Promise.reject(new Error('2件目の添付に失敗しました'))
+        return Promise.resolve({ submissionVersion: uploadedFiles.length === 1 ? 1 : 3 })
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-2/submit') return Promise.resolve(submitted)
+      return Promise.resolve([])
+    })
+    renderExisting('SKILL', 'RETURNED-1')
+    await screen.findByDisplayValue('既存の根拠')
+    fireEvent.change(screen.getByLabelText('根拠資料（任意）'), { target: { files: [
+      new File(['one'], 'first.pdf', { type: 'application/pdf' }),
+      new File(['two'], 'second.pdf', { type: 'application/pdf' }),
+    ] } })
+
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    const attachmentError = await screen.findByRole('alert')
+    expect(attachmentError).toHaveTextContent('成功済みの添付は保存されています。')
+    expect(attachmentError).toHaveTextContent('2件目の添付に失敗しました')
+    expect(screen.getByText(/状態:/)).toHaveTextContent('状態: 下書き / 第3版')
+
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('直属上長へ申請しました'))
+
+    expect(updateVersions).toEqual([5, 1])
+    expect(uploadedFiles).toEqual(['first.pdf', 'second.pdf', 'second.pdf'])
+    expect(uploadVersions).toEqual(['0', '1', '2'])
   })
 
   it('既存申請の取得中と取得失敗を支援技術へ通知する', async () => {

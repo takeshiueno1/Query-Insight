@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { z } from 'zod'
 import { api, ApiError } from '../lib/api'
 import { talentCategoryRoutes, talentSubmissionStatusLabels, talentSubmissionTypeLabels, type TalentMasterChoice, type TalentSubmission, type TalentSubmissionPayload, type TalentSubmissionType } from '../types'
@@ -36,6 +36,7 @@ export function TalentSubmissionFormPage() {
   const [files, setFiles] = useState<File[]>([])
   const [message, setMessage] = useState<string | null>(null)
   const client = useQueryClient()
+  const navigate = useNavigate()
   const masterQuery = useQuery({
     queryKey: ['talent-masters', talentType],
     queryFn: () => api<TalentMasterChoice[]>(`/api/v1/talent-masters/${talentType}`),
@@ -47,12 +48,22 @@ export function TalentSubmissionFormPage() {
     enabled: Boolean(publicId),
   })
   const existing = existingQuery.data?.find((item) => item.publicId === publicId)
+  const activeSubmission = existing ?? (draft?.publicId === publicId ? draft : undefined)
 
   useEffect(() => {
     if (!existing || draft !== null) return
     setDraft(existing)
     reset(toFormValues(existing.payload))
   }, [draft, existing, reset])
+
+  const persistSubmission = (submission: TalentSubmission) => {
+    setDraft(submission)
+    client.setQueryData<TalentSubmission[]>(['talent-submissions', 'mine', talentType], (current = []) => [
+      ...current.filter((item) => item.publicId !== submission.publicId),
+      submission,
+    ])
+    if (publicId !== submission.publicId) navigate(`/talent/${talentType}/${submission.publicId}/edit`, { replace: true })
+  }
 
   const mutation = useMutation({
     mutationFn: async ({ action, values }: { action: 'save' | 'submit'; values: FormValues }) => {
@@ -66,23 +77,40 @@ export function TalentSubmissionFormPage() {
       current = current
         ? await api<TalentSubmission>(`/api/v1/talent-submissions/${current.publicId}`, { method: 'PUT', body: JSON.stringify({ version: current.version, payload }) })
         : await api<TalentSubmission>(`/api/v1/talent-submissions/${talentType}`, { method: 'POST', body: JSON.stringify({ payload }) })
+      persistSubmission(current)
+      let uploadedCount = 0
       for (const file of files) {
         const form = new FormData()
         form.append('file', file)
         form.append('version', String(current.version))
-        const uploaded: { submissionVersion: number } = await api<{ submissionVersion: number }>(`/api/v1/talent-submissions/${current.publicId}/attachments`, { method: 'POST', body: form })
+        let uploaded: { submissionVersion: number }
+        try {
+          uploaded = await api<{ submissionVersion: number }>(`/api/v1/talent-submissions/${current.publicId}/attachments`, { method: 'POST', body: form })
+        } catch (error) {
+          const saved = uploadedCount > 0 ? '成功済みの添付は保存されています。' : '下書きは保存されています。'
+          throw new Error(`${saved}再実行すると未完了の添付から続行します。${errorDetail(error)}`)
+        }
         current = { ...current, version: uploaded.submissionVersion }
+        persistSubmission(current)
+        setFiles((pending) => pending.filter((item) => item !== file))
+        uploadedCount += 1
       }
-      return action === 'submit'
-        ? api<TalentSubmission>(`/api/v1/talent-submissions/${current.publicId}/submit`, { method: 'POST', body: JSON.stringify({ version: current.version }) })
-        : current
+      if (action === 'submit') {
+        try {
+          current = await api<TalentSubmission>(`/api/v1/talent-submissions/${current.publicId}/submit`, { method: 'POST', body: JSON.stringify({ version: current.version }) })
+        } catch (error) {
+          throw new Error(`下書きは保存されています。${errorDetail(error)}`)
+        }
+        persistSubmission(current)
+      }
+      return current
     },
     onSuccess: async (value, variables) => {
-      setDraft(value); setFiles([])
+      persistSubmission(value); setFiles([])
+      await client.invalidateQueries({ queryKey: ['talent-submissions'], refetchType: 'inactive' })
       setMessage(variables.action === 'submit' ? '直属上長へ申請しました。' : '下書きを保存しました。')
-      await client.invalidateQueries({ queryKey: ['talent-submissions'] })
     },
-    onError: (error) => setMessage(error instanceof ApiError ? error.problem.detail : error instanceof Error ? error.message : '処理できませんでした'),
+    onError: (error) => setMessage(errorDetail(error)),
   })
 
   const selectFiles = (list: FileList | null) => {
@@ -100,13 +128,15 @@ export function TalentSubmissionFormPage() {
   const run = (action: 'save' | 'submit') => handleSubmit((values) => mutation.mutate({ action, values }))()
 
   if (publicId && existingQuery.isLoading) return <section className="card" role="status"><p>申請内容を読み込んでいます…</p></section>
-  if (publicId && (existingQuery.isError || existingQuery.data && !existing)) return <section className="card" role="alert"><p className="error-banner">申請内容を取得できませんでした。</p></section>
-  if (publicId && existing && !['DRAFT', 'RETURNED'].includes(existing.status)) return <section className="card" role="alert"><p className="error-banner">{talentSubmissionStatusLabels[existing.status]}の申請は編集できません。</p><Link className="text-link" to={talentCategoryRoutes[talentType]}>一覧へ戻る</Link></section>
-  if (publicId && existing && !draft) return <section className="card" role="status"><p>申請内容を読み込んでいます…</p></section>
+  if (publicId && (existingQuery.isError || existingQuery.data && !activeSubmission)) return <section className="card" role="alert"><p className="error-banner">申請内容を取得できませんでした。</p></section>
+  const submittedHere = draft?.publicId === activeSubmission?.publicId && draft?.status === 'SUBMITTED'
+  if (publicId && activeSubmission && !['DRAFT', 'RETURNED'].includes(activeSubmission.status) && !submittedHere) return <section className="card" role="alert"><p className="error-banner">{talentSubmissionStatusLabels[activeSubmission.status]}の申請は編集できません。</p><Link className="text-link" to={talentCategoryRoutes[talentType]}>一覧へ戻る</Link></section>
+  if (publicId && activeSubmission && !draft) return <section className="card" role="status"><p>申請内容を読み込んでいます…</p></section>
 
   return <>
     <div className="page-heading"><div><span className="eyebrow">タレント情報</span><h1>{publicId ? `${label}申請を編集` : `${label}を登録`}</h1><p>必要事項を入力し、任意の根拠ファイルを添付して直属上長へ提出します</p></div></div>
     <section className="card talent-form">
+      <fieldset className="talent-form-fields" disabled={submittedHere}>
       {talentType !== 'CAREER' && <label>{label}<select {...register('masterPublicId')}><option value="">選択してください</option>{masterQuery.data?.map((item) => <option key={item.publicId} value={item.publicId}>{item.name}</option>)}</select></label>}
       {(talentType === 'SKILL' || talentType === 'KNOWLEDGE') && <label>習熟度（1～5）<input type="number" min={1} max={5} {...register('level')} /></label>}
       {talentType === 'SKILL' && <><label>経験年数<input type="number" min={0} max={60} step="0.1" {...register('yearsExperience')} /></label><label>最終利用日<input type="date" {...register('lastUsedOn')} /></label></>}
@@ -115,9 +145,10 @@ export function TalentSubmissionFormPage() {
       {talentType === 'CERTIFICATION' && <><label>取得日<input type="date" {...register('acquiredOn')} /></label><label>有効期限<input type="date" {...register('expiresOn')} /></label><label>資格番号<input maxLength={100} {...register('credentialReference')} /></label></>}
       {publicId && <p className="notice">既存の添付資料一覧は表示できません。差戻し後に必要な資料は再度添付してください。</p>}
       <label className="reason-box">根拠資料（任意）<small>PDF/JPEG/PNG、3件まで、1件5MB以内</small><input aria-label="根拠資料（任意）" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple onChange={(event) => selectFiles(event.target.files)} /></label>
+      </fieldset>
       {draft && <p className="notice">状態: {talentSubmissionStatusLabels[draft.status]} / 第{draft.revisionNo}版</p>}
       {message && <div role={mutation.isError ? 'alert' : 'status'} className={mutation.isError ? 'error-banner' : 'success-banner'}>{message}</div>}
-      <div className="form-actions"><Link className="secondary-button" to={talentCategoryRoutes[talentType]}>戻る</Link><button className="secondary-button" disabled={mutation.isPending} onClick={() => run('save')}>下書き保存</button><button className="primary-button" disabled={mutation.isPending} onClick={() => run('submit')}>直属上長へ申請</button></div>
+      <div className="form-actions"><Link className="secondary-button" to={talentCategoryRoutes[talentType]}>戻る</Link>{!submittedHere && <><button className="secondary-button" disabled={mutation.isPending} onClick={() => run('save')}>下書き保存</button><button className="primary-button" disabled={mutation.isPending} onClick={() => run('submit')}>直属上長へ申請</button></>}</div>
     </section>
   </>
 }
@@ -146,4 +177,8 @@ function toFormValues(payload: TalentSubmissionPayload): FormValues {
 
 function text(value: string | number | null | undefined, fallback = '') {
   return value === null || value === undefined ? fallback : String(value)
+}
+
+function errorDetail(error: unknown) {
+  return error instanceof ApiError ? error.problem.detail : error instanceof Error ? error.message : '処理できませんでした'
 }
