@@ -20,6 +20,30 @@ export type Problem = {
 
 export type Score = { axisCode: string; displayName: string; level: number }
 
+export type EvaluationRank = 'S' | 'A' | 'B' | 'C' | 'D' | 'F'
+
+export type ProfileStatus = {
+  publicId: string
+  skillScore: number
+  knowledgeScore: number
+  careerScore: number
+  certificationScore: number
+  totalScore: number
+  grade: EvaluationRank
+  missingCategories: Array<'SKILL' | 'KNOWLEDGE' | 'CAREER' | 'CERTIFICATION'>
+  formulaVersion: string
+  calculatedAt: string
+  editable: false
+}
+
+export type FinalManagerEvaluation = {
+  status: 'FINALIZED'
+  finalRank: EvaluationRank
+  summary: string | null
+  details: Array<{ axisCode: string; displayName: string; managerRank: EvaluationRank; comment: string | null }>
+  finalizedAt: string
+}
+
 export type Dashboard = {
   profile: {
     employeeNo: string
@@ -28,7 +52,8 @@ export type Dashboard = {
     positionName: string | null
     updatedAt: string
   }
-  scores: Score[]
+  profileStatus: ProfileStatus
+  finalManagerEvaluation: FinalManagerEvaluation | null
   unreadNotifications: number
 }
 
@@ -160,6 +185,7 @@ export type AiAnalysis = {
   recommendedActions: Array<{ action: string; priority: 'HIGH' | 'MEDIUM' | 'LOW' }>
   model: string
   generatedAt: string
+  analysisMode: 'AI' | 'PROTOTYPE'
 }
 
 export type TalentProfile = {

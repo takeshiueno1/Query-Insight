@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
@@ -249,13 +250,28 @@ public class EvaluationWorkflowService {
     }
 
     public FinalResult finalResult(String employeePublicId) {
-        Target target = jdbc.sql(targetSelect() + " WHERE e.public_id=:employeePublicId AND p.status='OPEN' ORDER BY p.start_date DESC LIMIT 1")
-                .param("employeePublicId", employeePublicId).query(this::mapTarget).optional()
+        Target target = latestOpenTarget(employeePublicId)
                 .orElseThrow(() -> notFound("評価対象が見つかりません"));
-        if (!"FINALIZED".equals(target.status())) {
-            throw notFound("確定した評価結果が見つかりません");
-        }
-        ManagerEvaluation manager = managerEvaluationRequired(target);
+        return publishedFinalResult(target)
+                .orElseThrow(() -> notFound("確定した評価結果が見つかりません"));
+    }
+
+    public Optional<FinalResult> publishedFinalResult(String employeePublicId) {
+        return latestOpenTarget(employeePublicId).flatMap(this::publishedFinalResult);
+    }
+
+    private Optional<Target> latestOpenTarget(String employeePublicId) {
+        return jdbc.sql(targetSelect()
+                        + " WHERE e.public_id=:employeePublicId AND p.status='OPEN' ORDER BY p.start_date DESC LIMIT 1")
+                .param("employeePublicId", employeePublicId).query(this::mapTarget).optional();
+    }
+
+    private Optional<FinalResult> publishedFinalResult(Target target) {
+        if (!"FINALIZED".equals(target.status()) || target.managerEvaluationId() == null) return Optional.empty();
+        Optional<ManagerEvaluation> managerResult = managerEvaluationOptional(target.managerEvaluationId())
+                .filter(manager -> "FINALIZED".equals(manager.status()));
+        if (managerResult.isEmpty()) return Optional.empty();
+        ManagerEvaluation manager = managerResult.get();
         List<FinalDetail> details = jdbc.sql("""
                 SELECT c.axis_code,c.display_name,m.level manager_level,m.comment
                 FROM evaluation_criteria c JOIN evaluation_periods p ON p.criteria_version_id=c.criteria_version_id
@@ -265,7 +281,8 @@ public class EvaluationWorkflowService {
                 """).param("managerId", manager.id()).param("targetId", target.id())
                 .query((rs, row) -> new FinalDetail(rs.getString("axis_code"), rs.getString("display_name"),
                         EvaluationRank.fromLevel(rs.getInt("manager_level")).name(), rs.getString("comment"))).list();
-        return new FinalResult(target.status(), target.finalGrade(), manager.summary(), details, target.finalizedAt());
+        return Optional.of(new FinalResult(target.status(), target.finalGrade(), manager.summary(), details,
+                target.finalizedAt()));
     }
 
     private ManagerEvaluationResponse managerResponse(Target target) {
@@ -487,6 +504,10 @@ public class EvaluationWorkflowService {
     }
 
     private ManagerEvaluation managerEvaluation(long id) {
+        return managerEvaluationOptional(id).orElseThrow(EvaluationWorkflowService::invalidState);
+    }
+
+    private Optional<ManagerEvaluation> managerEvaluationOptional(long id) {
         return jdbc.sql("""
                 SELECT id,status,summary,weighted_score,grade,profile_status_snapshot_id
                 FROM manager_evaluations WHERE id=:id
@@ -494,7 +515,7 @@ public class EvaluationWorkflowService {
                 .param("id", id).query((rs, row) -> new ManagerEvaluation(rs.getLong("id"), rs.getString("status"),
                         rs.getString("summary"), rs.getBigDecimal("weighted_score"), rs.getString("grade"),
                         (Long) rs.getObject("profile_status_snapshot_id")))
-                .optional().orElseThrow(EvaluationWorkflowService::invalidState);
+                .optional();
     }
 
     private void ensureProfileStatusSnapshot(ManagerEvaluation manager, long employeeId) {

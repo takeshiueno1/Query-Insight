@@ -1,6 +1,8 @@
 package com.query.insight.dashboard;
 
-import java.util.List;
+import com.query.insight.evaluation.EvaluationWorkflowService;
+import com.query.insight.notification.NotificationService;
+import com.query.insight.status.ProfileStatusService;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -12,9 +14,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/dashboard")
 public class DashboardController {
     private final JdbcClient jdbc;
+    private final ProfileStatusService profileStatuses;
+    private final EvaluationWorkflowService evaluations;
+    private final NotificationService notifications;
 
-    public DashboardController(JdbcClient jdbc) {
+    public DashboardController(JdbcClient jdbc, ProfileStatusService profileStatuses,
+            EvaluationWorkflowService evaluations, NotificationService notifications) {
         this.jdbc = jdbc;
+        this.profileStatuses = profileStatuses;
+        this.evaluations = evaluations;
+        this.notifications = notifications;
     }
 
     @GetMapping("/me")
@@ -28,27 +37,16 @@ public class DashboardController {
                 .query((rs, row) -> new Profile(rs.getString("employee_no"), rs.getString("name"),
                         rs.getString("department"), rs.getString("position_name"),
                         rs.getTimestamp("updated_at").toInstant())).single();
-        List<Score> scores = jdbc.sql("""
-                SELECT c.axis_code,c.display_name,COALESCE(s.level,0) level
-                FROM evaluation_criteria c
-                JOIN evaluation_criteria_versions cv ON cv.id=c.criteria_version_id AND cv.status='PUBLISHED'
-                LEFT JOIN evaluation_targets t ON t.employee_id=(SELECT id FROM employees WHERE public_id=:publicId)
-                LEFT JOIN self_evaluation_details s ON s.target_id=t.id AND s.axis_code=c.axis_code
-                ORDER BY c.sort_order
-                """).param("publicId", employeePublicId)
-                .query((rs, row) -> new Score(rs.getString("axis_code"), rs.getString("display_name"), rs.getInt("level")))
-                .list();
-        long unread = jdbc.sql("""
-                SELECT COUNT(*) FROM notifications n JOIN accounts a ON a.id=n.recipient_account_id
-                JOIN employees e ON e.id=a.employee_id WHERE e.public_id=:publicId AND n.read_at IS NULL
-                """).param("publicId", employeePublicId).query(Long.class).single();
-        return new DashboardResponse(profile, scores, unread);
+        ProfileStatusService.ProfileStatusResponse profileStatus = profileStatuses.currentForEmployee(employeePublicId);
+        EvaluationWorkflowService.FinalResult finalManagerEvaluation = evaluations
+                .publishedFinalResult(employeePublicId).orElse(null);
+        long unread = notifications.unreadCount(jwt.getClaimAsString("accountPublicId"));
+        return new DashboardResponse(profile, profileStatus, finalManagerEvaluation, unread);
     }
 
-    record DashboardResponse(Profile profile, List<Score> scores, long unreadNotifications) {
+    record DashboardResponse(Profile profile, ProfileStatusService.ProfileStatusResponse profileStatus,
+            EvaluationWorkflowService.FinalResult finalManagerEvaluation, long unreadNotifications) {
     }
     record Profile(String employeeNo, String name, String department, String positionName, java.time.Instant updatedAt) {
-    }
-    record Score(String axisCode, String displayName, int level) {
     }
 }
