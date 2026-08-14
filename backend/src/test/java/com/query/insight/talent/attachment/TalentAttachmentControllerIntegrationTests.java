@@ -107,7 +107,7 @@ class TalentAttachmentControllerIntegrationTests {
                         .param("version", "0").with(employeeJwt("QITEST", "GENERAL")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.scanStatus").value("ERROR"))
-                .andExpect(jsonPath("$.submissionVersion").value(0));
+                .andExpect(jsonPath("$.submissionVersion").value(1));
         org.assertj.core.api.Assertions.assertThat(jdbc.sql(
                         "SELECT COUNT(*) FROM talent_attachments WHERE submission_id=:id")
                 .param("id", draft.id()).query(Integer.class).single()).isEqualTo(1);

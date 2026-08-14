@@ -9,7 +9,6 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -40,25 +39,38 @@ public class TalentAttachmentService {
 
     public Upload upload(String employeePublicId, String submissionPublicId, long submissionVersion,
             MultipartFile file) {
-        UploadOutcome outcome = transactions.execute(status -> uploadInTransaction(
-                employeePublicId, submissionPublicId, submissionVersion, file));
-        if (outcome == null) throw new IllegalStateException("Attachment transaction returned no result");
-        if (outcome.error() != null) throw outcome.error();
-        return outcome.upload();
+        ValidatedFile validated = validate(file);
+        PreparedUpload prepared = transactions.execute(status -> prepareUpload(
+                employeePublicId, submissionPublicId, submissionVersion, validated));
+        if (prepared == null) throw new IllegalStateException("Attachment prepare transaction returned no result");
+        if (!prepared.scanRequired()) return prepared.upload("PENDING");
+
+        FileScanClient.Result result;
+        try {
+            result = scanner.scan(validated.content());
+        } catch (RuntimeException ignored) {
+            result = FileScanClient.Result.ERROR;
+        }
+        FileScanClient.Result scanResult = result;
+        Upload upload = transactions.execute(status -> finalizeUpload(prepared, scanResult));
+        if (upload == null) throw new IllegalStateException("Attachment finalize transaction returned no result");
+        if ("INFECTED".equals(upload.scanStatus())) {
+            throw badRequest("ATTACHMENT_INFECTED", "安全でないファイルを検出しました");
+        }
+        if ("ERROR".equals(upload.scanStatus())) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ATTACHMENT_SCAN_UNAVAILABLE",
+                    "ファイル検査を完了できませんでした。時間をおいて再試行します");
+        }
+        return upload;
     }
 
-    private UploadOutcome uploadInTransaction(String employeePublicId, String submissionPublicId,
-            long submissionVersion, MultipartFile file) {
-        Submission submission = editableSubmission(employeePublicId, submissionPublicId, submissionVersion);
-        byte[] content = content(file);
-        String contentType = validateContent(file, content);
-        String fileName = safeFileName(file.getOriginalFilename(), contentType);
-        String sha256 = sha256(content);
-        Submission locked = lockSubmission(submission.id());
+    private PreparedUpload prepareUpload(String employeePublicId, String submissionPublicId,
+            long submissionVersion, ValidatedFile file) {
+        Submission locked = lockSubmission(employeePublicId, submissionPublicId);
         if (!Set.of("DRAFT", "RETURNED").contains(locked.status())) throw conflict();
-        ExistingAttachment existing = findByHash(locked.id(), sha256);
+        ExistingAttachment existing = findByHash(locked.id(), file.sha256());
         if (existing != null) {
-            return new UploadOutcome(existing.upload(locked.version()), null);
+            return PreparedUpload.existing(existing.upload(locked.version()));
         }
         if (locked.version() != submissionVersion) throw conflict();
         if (attachmentCount(locked.id()) >= MAX_FILES) {
@@ -68,45 +80,47 @@ public class TalentAttachmentService {
         Instant now = Instant.now();
         jdbc.sql("""
                 INSERT INTO talent_attachments(public_id,submission_id,file_name,content_type,size_bytes,sha256,
-                  scan_status,content,scan_attempts,created_at)
+                  scan_status,content,scan_attempts,next_scan_at,created_at)
                 VALUES (:publicId,:submissionId,:fileName,:contentType,:sizeBytes,:sha256,
-                  'PENDING',:content,0,:now)
+                  'PENDING',:content,0,:nextScanAt,:now)
                 """)
                 .param("publicId", publicId)
                 .param("submissionId", locked.id())
-                .param("fileName", fileName)
-                .param("contentType", contentType)
-                .param("sizeBytes", content.length)
-                .param("sha256", sha256)
-                .param("content", content)
+                .param("fileName", file.fileName())
+                .param("contentType", file.contentType())
+                .param("sizeBytes", file.content().length)
+                .param("sha256", file.sha256())
+                .param("content", file.content())
+                .param("nextScanAt", Timestamp.from(now.plusSeconds(backoff(1))))
                 .param("now", Timestamp.from(now))
                 .update();
-        FileScanClient.Result result = scanner.scan(content);
+        long nextVersion = incrementSubmissionVersion(locked, submissionVersion, now);
+        return PreparedUpload.pending(publicId, file, nextVersion);
+    }
+
+    private Upload finalizeUpload(PreparedUpload prepared, FileScanClient.Result result) {
+        Instant now = Instant.now();
         if (result == FileScanClient.Result.CLEAN) {
             jdbc.sql("""
                     UPDATE talent_attachments SET scan_status='CLEAN',scan_attempts=1,scanned_at=:now
-                    WHERE public_id=:publicId
-                    """).param("now", Timestamp.from(now)).param("publicId", publicId).update();
+                      ,last_scan_error_code=NULL,next_scan_at=NULL
+                    WHERE public_id=:publicId AND scan_status='PENDING' AND scan_attempts=0
+                    """).param("now", Timestamp.from(now)).param("publicId", prepared.publicId()).update();
         } else if (result == FileScanClient.Result.INFECTED) {
             jdbc.sql("""
                     UPDATE talent_attachments SET scan_status='INFECTED',content=NULL,scan_attempts=1,
-                      scanned_at=:now WHERE public_id=:publicId
-                    """).param("now", Timestamp.from(now)).param("publicId", publicId).update();
-            return new UploadOutcome(null,
-                    badRequest("ATTACHMENT_INFECTED", "安全でないファイルを検出しました"));
+                      scanned_at=:now,last_scan_error_code=NULL,next_scan_at=NULL
+                    WHERE public_id=:publicId AND scan_status='PENDING' AND scan_attempts=0
+                    """).param("now", Timestamp.from(now)).param("publicId", prepared.publicId()).update();
         } else {
             jdbc.sql("""
                     UPDATE talent_attachments SET scan_status='ERROR',scan_attempts=1,
                       last_scan_error_code='SCANNER_UNAVAILABLE',next_scan_at=:nextScanAt
-                    WHERE public_id=:publicId
-                    """).param("nextScanAt", Timestamp.from(now.plusSeconds(60))).param("publicId", publicId).update();
-            return new UploadOutcome(null,
-                    new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ATTACHMENT_SCAN_UNAVAILABLE",
-                            "ファイル検査を完了できませんでした。時間をおいて再試行します"));
+                    WHERE public_id=:publicId AND scan_status='PENDING' AND scan_attempts=0
+                    """).param("nextScanAt", Timestamp.from(now.plusSeconds(backoff(1))))
+                    .param("publicId", prepared.publicId()).update();
         }
-        long nextVersion = incrementSubmissionVersion(locked, submissionVersion, now);
-        return new UploadOutcome(new Upload(publicId, fileName, contentType, content.length, result.name(), nextVersion),
-                null);
+        return currentUpload(prepared);
     }
 
     public Download download(String accountPublicId, String employeePublicId, Set<String> roles,
@@ -158,56 +172,88 @@ public class TalentAttachmentService {
         return submissionVersion + 1;
     }
 
-    @Transactional
     public int retryPendingScans(int limit) {
         if (limit < 1 || limit > 100) throw new IllegalArgumentException("limit must be between 1 and 100");
-        List<RetryAttachment> due = jdbc.sql("""
-                SELECT id,content,scan_attempts FROM talent_attachments
-                WHERE scan_status IN ('PENDING','ERROR') AND content IS NOT NULL
-                  AND (next_scan_at IS NULL OR next_scan_at<=CURRENT_TIMESTAMP)
-                ORDER BY next_scan_at,id LIMIT :limit FOR UPDATE SKIP LOCKED
-                """).param("limit", limit)
-                .query((rs, row) -> new RetryAttachment(rs.getLong("id"), rs.getBytes("content"),
-                        rs.getInt("scan_attempts"))).list();
-        Instant now = Instant.now();
-        for (RetryAttachment attachment : due) {
-            FileScanClient.Result result = scanner.scan(attachment.content());
-            int attempts = attachment.attempts() + 1;
-            if (result == FileScanClient.Result.CLEAN) {
-                jdbc.sql("""
-                        UPDATE talent_attachments SET scan_status='CLEAN',scan_attempts=:attempts,
-                          last_scan_error_code=NULL,next_scan_at=NULL,scanned_at=:now WHERE id=:id
-                        """).param("attempts", attempts).param("now", Timestamp.from(now))
-                        .param("id", attachment.id()).update();
-            } else if (result == FileScanClient.Result.INFECTED) {
-                jdbc.sql("""
-                        UPDATE talent_attachments SET scan_status='INFECTED',content=NULL,scan_attempts=:attempts,
-                          last_scan_error_code=NULL,next_scan_at=NULL,scanned_at=:now WHERE id=:id
-                        """).param("attempts", attempts).param("now", Timestamp.from(now))
-                        .param("id", attachment.id()).update();
-            } else {
-                jdbc.sql("""
-                        UPDATE talent_attachments SET scan_status='ERROR',scan_attempts=:attempts,
-                          last_scan_error_code='SCANNER_UNAVAILABLE',next_scan_at=:next WHERE id=:id
-                        """).param("attempts", attempts).param("next", Timestamp.from(now.plusSeconds(backoff(attempts))))
-                        .param("id", attachment.id()).update();
+        int processed = 0;
+        while (processed < limit) {
+            RetryAttachment attachment = transactions.execute(status -> claimPendingScan());
+            if (attachment == null) break;
+            FileScanClient.Result result;
+            try {
+                result = scanner.scan(attachment.content());
+            } catch (RuntimeException ignored) {
+                result = FileScanClient.Result.ERROR;
             }
+            FileScanClient.Result scanResult = result;
+            transactions.executeWithoutResult(status -> finalizeRetry(attachment, scanResult));
+            processed++;
         }
-        return due.size();
+        return processed;
     }
 
-    private Submission editableSubmission(String employeePublicId, String publicId, long version) {
-        Submission submission = jdbc.sql("""
-                SELECT s.id,s.status,s.version
-                FROM talent_submissions s JOIN employees e ON e.id=s.employee_id
-                WHERE s.public_id=:publicId AND e.public_id=:employeePublicId
-                """).param("publicId", publicId).param("employeePublicId", employeePublicId)
-                .query((rs, row) -> new Submission(rs.getLong("id"), rs.getString("status"), rs.getLong("version")))
-                .optional().orElseThrow(TalentAttachmentService::notFound);
-        if (!Set.of("DRAFT", "RETURNED").contains(submission.status()) || submission.version() != version) {
-            throw conflict();
+    private RetryAttachment claimPendingScan() {
+        RetryCandidate candidate = jdbc.sql("""
+                SELECT id,content,scan_attempts,scan_status FROM talent_attachments
+                WHERE scan_status IN ('PENDING','ERROR') AND content IS NOT NULL
+                  AND (next_scan_at IS NULL OR next_scan_at<=CURRENT_TIMESTAMP)
+                ORDER BY next_scan_at,id LIMIT 1 FOR UPDATE SKIP LOCKED
+                """)
+                .query((rs, row) -> new RetryCandidate(rs.getLong("id"), rs.getBytes("content"),
+                        rs.getInt("scan_attempts"), rs.getString("scan_status"))).optional().orElse(null);
+        if (candidate == null) return null;
+        Instant now = Instant.now();
+        int attempts = candidate.attempts() + 1;
+        int updated = jdbc.sql("""
+                UPDATE talent_attachments SET scan_attempts=:attempts,next_scan_at=:leaseUntil
+                WHERE id=:id AND scan_attempts=:previousAttempts AND scan_status=:expectedStatus
+                """).param("attempts", attempts)
+                .param("leaseUntil", Timestamp.from(now.plusSeconds(backoff(attempts))))
+                .param("id", candidate.id()).param("previousAttempts", candidate.attempts())
+                .param("expectedStatus", candidate.expectedStatus()).update();
+        return updated == 1
+                ? new RetryAttachment(candidate.id(), candidate.content(), attempts, candidate.expectedStatus())
+                : null;
+    }
+
+    private void finalizeRetry(RetryAttachment attachment, FileScanClient.Result result) {
+        Instant now = Instant.now();
+        if (result == FileScanClient.Result.CLEAN) {
+            jdbc.sql("""
+                    UPDATE talent_attachments SET scan_status='CLEAN',last_scan_error_code=NULL,
+                      next_scan_at=NULL,scanned_at=:now
+                    WHERE id=:id AND scan_status=:expectedStatus AND scan_attempts=:attempts
+                    """).param("now", Timestamp.from(now)).param("id", attachment.id())
+                    .param("expectedStatus", attachment.expectedStatus())
+                    .param("attempts", attachment.attempts()).update();
+        } else if (result == FileScanClient.Result.INFECTED) {
+            jdbc.sql("""
+                    UPDATE talent_attachments SET scan_status='INFECTED',content=NULL,last_scan_error_code=NULL,
+                      next_scan_at=NULL,scanned_at=:now
+                    WHERE id=:id AND scan_status=:expectedStatus AND scan_attempts=:attempts
+                    """).param("now", Timestamp.from(now)).param("id", attachment.id())
+                    .param("expectedStatus", attachment.expectedStatus())
+                    .param("attempts", attachment.attempts()).update();
+        } else {
+            jdbc.sql("""
+                    UPDATE talent_attachments SET scan_status='ERROR',last_scan_error_code='SCANNER_UNAVAILABLE',
+                      next_scan_at=:next
+                    WHERE id=:id AND scan_status=:expectedStatus AND scan_attempts=:attempts
+                    """).param("next", Timestamp.from(now.plusSeconds(backoff(attachment.attempts()))))
+                    .param("id", attachment.id()).param("expectedStatus", attachment.expectedStatus())
+                    .param("attempts", attachment.attempts()).update();
         }
-        return submission;
+    }
+
+    private Upload currentUpload(PreparedUpload prepared) {
+        return jdbc.sql("""
+                SELECT ta.file_name,ta.content_type,ta.size_bytes,ta.scan_status,s.version submission_version
+                FROM talent_attachments ta JOIN talent_submissions s ON s.id=ta.submission_id
+                WHERE ta.public_id=:publicId
+                """).param("publicId", prepared.publicId())
+                .query((rs, row) -> new Upload(prepared.publicId(), rs.getString("file_name"),
+                        rs.getString("content_type"), rs.getLong("size_bytes"), rs.getString("scan_status"),
+                        rs.getLong("submission_version")))
+                .optional().orElseThrow(TalentAttachmentService::conflict);
     }
 
     private int attachmentCount(long submissionId) {
@@ -215,12 +261,17 @@ public class TalentAttachmentService {
                 .param("id", submissionId).query(Integer.class).single();
     }
 
-    private Submission lockSubmission(long submissionId) {
-        return jdbc.sql("SELECT id,status,version FROM talent_submissions WHERE id=:id FOR UPDATE")
-                .param("id", submissionId)
+    private Submission lockSubmission(String employeePublicId, String submissionPublicId) {
+        return jdbc.sql("""
+                SELECT id,status,version FROM talent_submissions
+                WHERE public_id=:submissionPublicId
+                  AND employee_id=(SELECT id FROM employees WHERE public_id=:employeePublicId)
+                FOR UPDATE
+                """).param("submissionPublicId", submissionPublicId)
+                .param("employeePublicId", employeePublicId)
                 .query((rs, row) -> new Submission(rs.getLong("id"), rs.getString("status"),
                         rs.getLong("version")))
-                .single();
+                .optional().orElseThrow(TalentAttachmentService::notFound);
     }
 
     private ExistingAttachment findByHash(long submissionId, String sha256) {
@@ -232,6 +283,13 @@ public class TalentAttachmentService {
                         rs.getString("file_name"), rs.getString("content_type"), rs.getLong("size_bytes"),
                         rs.getString("scan_status")))
                 .optional().orElse(null);
+    }
+
+    private ValidatedFile validate(MultipartFile file) {
+        byte[] content = content(file);
+        String contentType = validateContent(file, content);
+        return new ValidatedFile(content, contentType, safeFileName(file.getOriginalFilename(), contentType),
+                sha256(content));
     }
 
     private byte[] content(MultipartFile file) {
@@ -334,7 +392,25 @@ public class TalentAttachmentService {
             String scanStatus, long submissionVersion) {
     }
 
-    private record UploadOutcome(Upload upload, ApiException error) {
+    private record ValidatedFile(byte[] content, String contentType, String fileName, String sha256) {
+    }
+
+    private record PreparedUpload(Upload existing, String publicId, String fileName, String contentType,
+            long sizeBytes, long submissionVersion, boolean scanRequired) {
+        static PreparedUpload existing(Upload upload) {
+            return new PreparedUpload(upload, upload.publicId(), upload.fileName(), upload.contentType(),
+                    upload.sizeBytes(), upload.submissionVersion(), false);
+        }
+
+        static PreparedUpload pending(String publicId, ValidatedFile file, long submissionVersion) {
+            return new PreparedUpload(null, publicId, file.fileName(), file.contentType(), file.content().length,
+                    submissionVersion, true);
+        }
+
+        Upload upload(String scanStatus) {
+            return existing != null ? existing
+                    : new Upload(publicId, fileName, contentType, sizeBytes, scanStatus, submissionVersion);
+        }
     }
 
     public record Download(String fileName, String contentType, byte[] content) {
@@ -357,6 +433,9 @@ public class TalentAttachmentService {
     private record AttachmentOwner(long attachmentId, long submissionId, String status, long version) {
     }
 
-    private record RetryAttachment(long id, byte[] content, int attempts) {
+    private record RetryCandidate(long id, byte[] content, int attempts, String expectedStatus) {
+    }
+
+    private record RetryAttachment(long id, byte[] content, int attempts, String expectedStatus) {
     }
 }

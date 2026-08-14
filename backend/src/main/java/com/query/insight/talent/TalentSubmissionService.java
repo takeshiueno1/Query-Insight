@@ -125,7 +125,7 @@ public class TalentSubmissionService {
     @Transactional
     public TalentSubmissionRepository.Row submit(String employeePublicId, String actorAccountPublicId,
             String submissionPublicId, long version, String traceId) {
-        var current = ownSubmission(employeePublicId, submissionPublicId);
+        var current = ownSubmissionForUpdate(employeePublicId, submissionPublicId);
         TalentSubmission.requireTransition(current.status(), Action.SUBMIT);
         validate(repository.payload(current));
         requireAttachmentsClean(current.id());
@@ -356,6 +356,20 @@ public class TalentSubmissionService {
                 .filter(row -> row.employeeId() == employeeId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TALENT_SUBMISSION_NOT_FOUND",
                         "対象の申請が見つかりません"));
+    }
+
+    private TalentSubmissionRepository.Row ownSubmissionForUpdate(String employeePublicId,
+            String submissionPublicId) {
+        long employeeId = employeeId(employeePublicId);
+        jdbc.sql("""
+                SELECT id FROM talent_submissions
+                WHERE public_id=:submissionPublicId AND employee_id=:employeeId
+                FOR UPDATE
+                """).param("submissionPublicId", submissionPublicId).param("employeeId", employeeId)
+                .query(Long.class).optional()
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TALENT_SUBMISSION_NOT_FOUND",
+                        "対象の申請が見つかりません"));
+        return repository.findByPublicId(submissionPublicId).orElseThrow();
     }
 
     private void validate(Payload payload) {

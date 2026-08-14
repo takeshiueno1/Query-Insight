@@ -3,11 +3,14 @@ package com.query.insight.talent.attachment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.zaxxer.hikari.HikariDataSource;
 import com.query.insight.common.ApiException;
 import com.query.insight.talent.TalentPayloads;
 import com.query.insight.talent.TalentSubmission.Type;
 import com.query.insight.talent.TalentSubmissionRepository;
+import com.query.insight.talent.TalentSubmissionService;
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -16,9 +19,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,7 +43,11 @@ class TalentAttachmentServiceIntegrationTests {
     @Autowired
     private TalentSubmissionRepository submissions;
     @Autowired
+    private TalentSubmissionService submissionService;
+    @Autowired
     private JdbcClient jdbc;
+    @Autowired
+    private DataSource dataSource;
     @Autowired
     private FakeFileScanClient scanner;
 
@@ -166,7 +173,7 @@ class TalentAttachmentServiceIntegrationTests {
 
         assertThat(replay.publicId()).isEqualTo(persistedPublicId);
         assertThat(replay.scanStatus()).isEqualTo("ERROR");
-        assertThat(replay.submissionVersion()).isZero();
+        assertThat(replay.submissionVersion()).isEqualTo(1);
 
         jdbc.sql("UPDATE talent_attachments SET scan_status='PENDING' WHERE submission_id=:id")
                 .param("id", draft.id()).update();
@@ -198,17 +205,17 @@ class TalentAttachmentServiceIntegrationTests {
     }
 
     @Test
-    void duplicateReplayStillRequiresOwnerEditableSubmissionAndCurrentVersion() {
+    void duplicateReplayStillRequiresOwnerAndEditableSubmissionWhileDifferentFileRequiresCurrentVersion() {
         var draft = createDraft();
-        service.upload(employeePublicId("QITEST"), draft.publicId(), 0,
+        var first = service.upload(employeePublicId("QITEST"), draft.publicId(), 0,
                 file("private.pdf", "application/pdf", PDF));
 
         assertNotFound(() -> service.upload(employeePublicId("QI0003"), draft.publicId(), 1,
                 file("private.pdf", "application/pdf", PDF)));
-        assertThatThrownBy(() -> service.upload(employeePublicId("QITEST"), draft.publicId(), 0,
-                file("private.pdf", "application/pdf", PDF)))
-                .isInstanceOfSatisfying(ApiException.class,
-                        exception -> assertThat(exception.status().value()).isEqualTo(409));
+        var replay = service.upload(employeePublicId("QITEST"), draft.publicId(), 0,
+                file("private.pdf", "application/pdf", PDF));
+        assertThat(replay.publicId()).isEqualTo(first.publicId());
+        assertThat(replay.submissionVersion()).isEqualTo(1);
         assertThatThrownBy(() -> service.upload(employeePublicId("QITEST"), draft.publicId(), 0,
                 file("different.pdf", "application/pdf", pdf(99))))
                 .isInstanceOfSatisfying(ApiException.class,
@@ -225,7 +232,7 @@ class TalentAttachmentServiceIntegrationTests {
     }
 
     @Test
-    void concurrentSameUploadReturnsOneAttachmentAndDatabaseCurrentVersion() throws Exception {
+    void concurrentSameUploadCommitsPendingAndReleasesDatabaseBeforeScannerReturns() throws Exception {
         var draft = createDraft();
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
@@ -237,21 +244,105 @@ class TalentAttachmentServiceIntegrationTests {
                     employeePublicId("QITEST"), draft.publicId(), 0,
                     file("concurrent.pdf", "application/pdf", PDF)));
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(activeDatabaseConnections()).isZero();
+            assertThat(jdbc.sql("SELECT version FROM talent_submissions WHERE id=:id FOR UPDATE")
+                    .param("id", draft.id()).query(Long.class).single()).isEqualTo(1);
+            assertThat(jdbc.sql("SELECT scan_status FROM talent_attachments WHERE submission_id=:id")
+                    .param("id", draft.id()).query(String.class).single()).isEqualTo("PENDING");
+
             Future<TalentAttachmentService.Upload> second = executor.submit(() -> service.upload(
                     employeePublicId("QITEST"), draft.publicId(), 0,
                     file("concurrent.pdf", "application/pdf", PDF)));
-            assertThatThrownBy(() -> second.get(250, TimeUnit.MILLISECONDS))
-                    .isInstanceOf(TimeoutException.class);
+            TalentAttachmentService.Upload pending = second.get(2, TimeUnit.SECONDS);
+            assertThat(pending.scanStatus()).isEqualTo("PENDING");
+            assertThat(pending.submissionVersion()).isEqualTo(1);
             release.countDown();
 
-            List<TalentAttachmentService.Upload> uploads = List.of(
-                    first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS));
+            List<TalentAttachmentService.Upload> uploads = List.of(first.get(10, TimeUnit.SECONDS), pending);
             assertThat(uploads).extracting(TalentAttachmentService.Upload::publicId)
                     .containsOnly(uploads.get(0).publicId());
             assertThat(uploads).extracting(TalentAttachmentService.Upload::submissionVersion)
                     .containsOnly(1L);
             assertThat(scanner.scanCalls).hasValue(1);
             assertThat(attachmentCount(draft.id())).isEqualTo(1);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void submitCannotPassWhilePendingUploadFinalizesAsError() throws Exception {
+        var draft = createDraft();
+        scanner.result.set(FileScanClient.Result.ERROR);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        scanner.entered.set(entered);
+        scanner.release.set(release);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<TalentAttachmentService.Upload> upload = executor.submit(() -> service.upload(
+                    employeePublicId("QITEST"), draft.publicId(), 0,
+                    file("pending-error.pdf", "application/pdf", PDF)));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> submit = executor.submit(() -> submissionService.submit(
+                    employeePublicId("QITEST"), accountPublicId("QITEST"), draft.publicId(), 1,
+                    "01J00000000000000000000991"));
+            assertFutureApiCode(submit, "ATTACHMENT_SCAN_INCOMPLETE");
+            assertThat(submissionStatus(draft.id())).isEqualTo("DRAFT");
+
+            release.countDown();
+            assertFutureApiCode(upload, "ATTACHMENT_SCAN_UNAVAILABLE");
+            assertThat(attachmentStatus(draft.id())).isEqualTo("ERROR");
+            assertThat(submissionVersion(draft.id())).isEqualTo(1);
+            assertThatThrownBy(() -> submissionService.submit(
+                    employeePublicId("QITEST"), accountPublicId("QITEST"), draft.publicId(), 1,
+                    "01J00000000000000000000992"))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            exception -> assertThat(exception.code()).isEqualTo("ATTACHMENT_SCAN_INCOMPLETE"));
+            assertThat(submissionStatus(draft.id())).isEqualTo("DRAFT");
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void retryScannerDoesNotHoldDatabaseConnectionOrAttachmentLock() throws Exception {
+        var draft = createDraft();
+        scanner.result.set(FileScanClient.Result.ERROR);
+        assertThatThrownBy(() -> service.upload(employeePublicId("QITEST"), draft.publicId(), 0,
+                file("retry-outside-transaction.pdf", "application/pdf", PDF)))
+                .isInstanceOf(ApiException.class);
+        String attachmentPublicId = jdbc.sql(
+                        "SELECT public_id FROM talent_attachments WHERE submission_id=:id")
+                .param("id", draft.id()).query(String.class).single().trim();
+        jdbc.sql("UPDATE talent_attachments SET next_scan_at=:later WHERE scan_status IN ('PENDING','ERROR')")
+                .param("later", Timestamp.from(Instant.now().plusSeconds(3600))).update();
+        jdbc.sql("UPDATE talent_attachments SET next_scan_at=CURRENT_TIMESTAMP WHERE public_id=:publicId")
+                .param("publicId", attachmentPublicId).update();
+
+        scanner.result.set(FileScanClient.Result.CLEAN);
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        scanner.entered.set(entered);
+        scanner.release.set(release);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<Integer> retry = executor.submit(() -> service.retryPendingScans(10));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(activeDatabaseConnections()).isZero();
+            assertThat(jdbc.sql("SELECT scan_attempts FROM talent_attachments WHERE public_id=:publicId FOR UPDATE")
+                    .param("publicId", attachmentPublicId).query(Integer.class).single()).isEqualTo(2);
+            assertThat(service.retryPendingScans(10)).isZero();
+            assertThat(scanner.scanCalls).hasValue(2);
+            release.countDown();
+
+            assertThat(retry.get(10, TimeUnit.SECONDS)).isEqualTo(1);
+            assertThat(attachmentStatus(draft.id())).isEqualTo("CLEAN");
         } finally {
             release.countDown();
             executor.shutdownNow();
@@ -278,6 +369,32 @@ class TalentAttachmentServiceIntegrationTests {
     private int attachmentCount(long submissionId) {
         return jdbc.sql("SELECT COUNT(*) FROM talent_attachments WHERE submission_id=:id")
                 .param("id", submissionId).query(Integer.class).single();
+    }
+
+    private String attachmentStatus(long submissionId) {
+        return jdbc.sql("SELECT scan_status FROM talent_attachments WHERE submission_id=:id")
+                .param("id", submissionId).query(String.class).single();
+    }
+
+    private String submissionStatus(long submissionId) {
+        return jdbc.sql("SELECT status FROM talent_submissions WHERE id=:id")
+                .param("id", submissionId).query(String.class).single();
+    }
+
+    private long submissionVersion(long submissionId) {
+        return jdbc.sql("SELECT version FROM talent_submissions WHERE id=:id")
+                .param("id", submissionId).query(Long.class).single();
+    }
+
+    private int activeDatabaseConnections() {
+        return ((HikariDataSource) dataSource).getHikariPoolMXBean().getActiveConnections();
+    }
+
+    private void assertFutureApiCode(Future<?> future, String code) {
+        assertThatThrownBy(() -> future.get(2, TimeUnit.SECONDS))
+                .rootCause()
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.code()).isEqualTo(code));
     }
 
     private String employeePublicId(String employeeNo) {
