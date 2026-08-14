@@ -20,13 +20,14 @@ class PrototypeAnalysisServiceTests {
         var result = service.analyze(status("75", "75", "30", "0"), talent());
 
         assertThat(result.strengths()).extracting(AiAnalysisClient.Insight::title)
-                .containsExactly("スキル", "専門知識");
+                .containsExactly("スキル", "得意分野");
         assertThat(result.growthAreas()).extracting(AiAnalysisClient.Insight::title)
                 .containsExactly("資格", "業務経歴");
         assertThat(result.growthAreas().getFirst().evidence()).contains("未登録");
         assertThat(result.model()).isEqualTo("ルールベース V1");
         assertThat(result.analysisMode()).isEqualTo("PROTOTYPE");
         assertThat(result.generatedAt()).isEqualTo(NOW);
+        assertThat(result.toString()).doesNotContain("専門知識");
     }
 
     @Test
@@ -50,7 +51,7 @@ class PrototypeAnalysisServiceTests {
 
         assertThat(result.recommendedActions()).extracting(AiAnalysisClient.RecommendedAction::action)
                 .anySatisfy(action -> assertThat(action).containsAnyOf("開発リーダー", "Java", "PostgreSQL"))
-                .noneSatisfy(action -> assertThat(action).contains("承認済みのスキル・専門知識"));
+                .noneSatisfy(action -> assertThat(action).contains("承認済みのスキル・得意分野"));
     }
 
     @Test
@@ -62,7 +63,7 @@ class PrototypeAnalysisServiceTests {
 
         assertThat(result.recommendedActions()).extracting(AiAnalysisClient.RecommendedAction::action)
                 .anySatisfy(action -> assertThat(action).contains("応用情報技術者"))
-                .noneSatisfy(action -> assertThat(action).contains("承認済みのスキル・専門知識"));
+                .noneSatisfy(action -> assertThat(action).contains("承認済みのスキル・得意分野"));
     }
 
     @Test
@@ -75,6 +76,17 @@ class PrototypeAnalysisServiceTests {
 
         assertThat(result.recommendedActions()).extracting(AiAnalysisClient.RecommendedAction::action)
                 .anySatisfy(action -> assertThat(action).contains("Java"));
+    }
+
+    @Test
+    void knowledgeRecommendationUsesUserFacingPreferredFieldWording() {
+        var knowledgeOnly = new AiAnalysisClient.TalentProfileInput(null, 0, List.of(),
+                List.of(new AiAnalysisClient.KnowledgeInput("設計", 4, "設計実績")), List.of(), List.of());
+
+        var result = service.analyze(status("0", "70", "0", "0"), knowledgeOnly);
+
+        assertThat(result.toString()).contains("得意分野", "承認済み得意分野「設計」")
+                .doesNotContain("専門知識");
     }
 
     @Test

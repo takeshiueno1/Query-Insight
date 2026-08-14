@@ -6,8 +6,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.query.insight.common.PublicIdGenerator;
+import java.sql.Date;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -96,6 +98,70 @@ class DashboardControllerIntegrationTests {
                 .andExpect(jsonPath("$.unreadNotifications").value(0));
     }
 
+    @Test
+    void doesNotPublishFinalizedManagerEvaluationOwnedByAnotherTarget() throws Exception {
+        Account owner = account("QI0005");
+        long otherManagerId = jdbc.sql("""
+                SELECT t.current_manager_evaluation_id FROM evaluation_targets t
+                JOIN employees e ON e.id=t.employee_id JOIN evaluation_periods p ON p.id=t.period_id
+                WHERE e.employee_no='QI0004' AND p.status='OPEN'
+                """).query(Long.class).single();
+        jdbc.sql("UPDATE manager_evaluations SET status='FINALIZED' WHERE id=:id")
+                .param("id", otherManagerId).update();
+        jdbc.sql("""
+                UPDATE evaluation_targets SET current_manager_evaluation_id=:managerId
+                WHERE employee_id=:employeeId AND period_id IN (SELECT id FROM evaluation_periods WHERE status='OPEN')
+                """).param("managerId", otherManagerId).param("employeeId", owner.employeeId()).update();
+
+        mvc.perform(get("/api/v1/dashboard/me").with(general(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile.employeeNo").value("QI0005"))
+                .andExpect(jsonPath("$.finalManagerEvaluation").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void doesNotPublishFinalizedManagerEvaluationFromAnotherPeriod() throws Exception {
+        Account owner = account("QI0005");
+        long originalManagerId = currentManagerId(owner.employeeId());
+        long laterPeriodId = insertOpenPeriod(owner.employeeId(), "期間跨ぎ不整合", LocalDate.of(2099, 1, 1));
+        insertTarget(laterPeriodId, owner.employeeId(), "FINALIZED", originalManagerId, "S");
+
+        mvc.perform(get("/api/v1/dashboard/me").with(general(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profile.employeeNo").value("QI0005"))
+                .andExpect(jsonPath("$.finalManagerEvaluation").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
+    void selectsHigherTargetIdWhenOpenPeriodsHaveTheSameStartDate() throws Exception {
+        Account owner = account("QITEST");
+        LocalDate sameStart = LocalDate.of(2100, 1, 1);
+        long lowerPeriodId = insertOpenPeriod(owner.employeeId(), "同日開始1", sameStart);
+        insertTarget(lowerPeriodId, owner.employeeId(), "DRAFT", null, null);
+        long higherPeriodId = insertOpenPeriod(owner.employeeId(), "同日開始2", sameStart);
+        long higherTargetId = insertTarget(higherPeriodId, owner.employeeId(), "DRAFT", null, null);
+        finalizeTarget(higherTargetId, higherPeriodId, "同日開始では新しい対象を公開");
+
+        mvc.perform(get("/api/v1/dashboard/me").with(general(owner)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.finalManagerEvaluation.finalRank").value("S"))
+                .andExpect(jsonPath("$.finalManagerEvaluation.summary").value("同日開始では新しい対象を公開"));
+    }
+
+    @Test
+    void doesNotHideNotificationAuthorizationFailure() throws Exception {
+        Account owner = account("QI0005");
+        RequestPostProcessor jwtWithMissingAccount = jwt().jwt(token -> token
+                        .claim("accountPublicId", PublicIdGenerator.next())
+                        .claim("employeePublicId", owner.employeePublicId())
+                        .claim("scopes", List.of("SELF")))
+                .authorities(new SimpleGrantedAuthority("ROLE_GENERAL"));
+
+        mvc.perform(get("/api/v1/dashboard/me").with(jwtWithMissingAccount))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("SESSION_EXPIRED"));
+    }
+
     private void clearApprovedProfile(long employeeId) {
         jdbc.sql("DELETE FROM profile_status_snapshots WHERE employee_id=:employeeId")
                 .param("employeeId", employeeId).update();
@@ -124,6 +190,70 @@ class DashboardControllerIntegrationTests {
                 """).param("publicId", PublicIdGenerator.next()).param("accountId", accountId)
                 .param("createdAt", Timestamp.from(Instant.parse("2026-08-14T03:00:00Z")))
                 .param("dedupeKey", dedupeKey).update();
+    }
+
+    private long currentManagerId(long employeeId) {
+        return jdbc.sql("""
+                SELECT t.current_manager_evaluation_id FROM evaluation_targets t
+                JOIN evaluation_periods p ON p.id=t.period_id
+                WHERE t.employee_id=:employeeId AND p.status='OPEN' ORDER BY p.start_date DESC,t.id DESC LIMIT 1
+                """).param("employeeId", employeeId).query(Long.class).single();
+    }
+
+    private long insertOpenPeriod(long employeeId, String name, LocalDate startDate) {
+        String publicId = PublicIdGenerator.next();
+        long criteriaVersionId = jdbc.sql("""
+                SELECT p.criteria_version_id FROM evaluation_periods p JOIN evaluation_targets t ON t.period_id=p.id
+                WHERE t.employee_id=:employeeId ORDER BY p.start_date DESC,t.id DESC LIMIT 1
+                """).param("employeeId", employeeId).query(Long.class).single();
+        jdbc.sql("""
+                INSERT INTO evaluation_periods(public_id,name,start_date,end_date,self_deadline,manager_deadline,
+                  criteria_version_id,status,version)
+                VALUES (:publicId,:name,:startDate,:endDate,:selfDeadline,:managerDeadline,:criteriaVersionId,'OPEN',0)
+                """).param("publicId", publicId).param("name", name).param("startDate", Date.valueOf(startDate))
+                .param("endDate", Date.valueOf(startDate.plusMonths(6)))
+                .param("selfDeadline", Timestamp.valueOf(startDate.plusMonths(1).atStartOfDay()))
+                .param("managerDeadline", Timestamp.valueOf(startDate.plusMonths(2).atStartOfDay()))
+                .param("criteriaVersionId", criteriaVersionId).update();
+        return jdbc.sql("SELECT id FROM evaluation_periods WHERE public_id=:publicId")
+                .param("publicId", publicId).query(Long.class).single();
+    }
+
+    private long insertTarget(long periodId, long employeeId, String status, Long managerId, String finalGrade) {
+        String publicId = PublicIdGenerator.next();
+        long evaluatorId = jdbc.sql("""
+                SELECT evaluator_employee_id FROM evaluation_targets WHERE employee_id=:employeeId ORDER BY id LIMIT 1
+                """).param("employeeId", employeeId).query(Long.class).single();
+        jdbc.sql("""
+                INSERT INTO evaluation_targets(public_id,period_id,employee_id,evaluator_employee_id,status,version,
+                  current_manager_evaluation_id,final_grade,finalized_at)
+                VALUES (:publicId,:periodId,:employeeId,:evaluatorId,:status,0,:managerId,:finalGrade,
+                  CASE WHEN :status='FINALIZED' THEN CURRENT_TIMESTAMP ELSE NULL END)
+                """).param("publicId", publicId).param("periodId", periodId).param("employeeId", employeeId)
+                .param("evaluatorId", evaluatorId).param("status", status).param("managerId", managerId)
+                .param("finalGrade", finalGrade).update();
+        return jdbc.sql("SELECT id FROM evaluation_targets WHERE public_id=:publicId")
+                .param("publicId", publicId).query(Long.class).single();
+    }
+
+    private void finalizeTarget(long targetId, long periodId, String summary) {
+        String managerPublicId = PublicIdGenerator.next();
+        jdbc.sql("""
+                INSERT INTO manager_evaluations(public_id,target_id,revision_no,status,summary,weighted_score,grade,
+                  finalized_at,version)
+                VALUES (:publicId,:targetId,1,'FINALIZED',:summary,5.00,'S',CURRENT_TIMESTAMP,0)
+                """).param("publicId", managerPublicId).param("targetId", targetId).param("summary", summary).update();
+        long managerId = jdbc.sql("SELECT id FROM manager_evaluations WHERE public_id=:publicId")
+                .param("publicId", managerPublicId).query(Long.class).single();
+        jdbc.sql("""
+                INSERT INTO manager_evaluation_details(manager_evaluation_id,axis_code,level,comment)
+                SELECT :managerId,c.axis_code,5,'同日開始の確定評価' FROM evaluation_criteria c
+                JOIN evaluation_periods p ON p.criteria_version_id=c.criteria_version_id WHERE p.id=:periodId
+                """).param("managerId", managerId).param("periodId", periodId).update();
+        jdbc.sql("""
+                UPDATE evaluation_targets SET status='FINALIZED',current_manager_evaluation_id=:managerId,
+                  final_grade='S',finalized_at=CURRENT_TIMESTAMP WHERE id=:targetId
+                """).param("managerId", managerId).param("targetId", targetId).update();
     }
 
     private RequestPostProcessor general(Account account) {

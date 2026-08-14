@@ -76,7 +76,7 @@ public class PrototypeAnalysisService {
 
     private static List<Category> categories(ProfileStatusResponse status) {
         return List.of(new Category("スキル", status.skillScore(), 0),
-                new Category("専門知識", status.knowledgeScore(), 1),
+                new Category("得意分野", status.knowledgeScore(), 1),
                 new Category("業務経歴", status.careerScore(), 2),
                 new Category("資格", status.certificationScore(), 3));
     }
@@ -84,7 +84,7 @@ public class PrototypeAnalysisService {
     private static String actionFor(Category category) {
         return switch (category.label()) {
             case "スキル" -> "業務で使用したスキルと根拠を整理し、上長承認を申請してください。";
-            case "専門知識" -> "担当領域の専門知識と活用実績を整理し、上長承認を申請してください。";
+            case "得意分野" -> "得意分野と活用実績を整理し、上長承認を申請してください。";
             case "業務経歴" -> "直近の業務経歴に役割と成果を追記し、上長承認を申請してください。";
             case "資格" -> "保有資格または学習中の資格を確認し、取得済みなら上長承認を申請してください。";
             default -> throw new IllegalArgumentException("Unknown profile category");
@@ -104,8 +104,8 @@ public class PrototypeAnalysisService {
         }
         if (!talent.knowledge().isEmpty()) {
             return safeLabel(talent.knowledge().getFirst().name())
-                    .map(name -> "承認済み専門知識「" + name + "」を次の業務目標に結び付けてください。")
-                    .orElse("承認済み専門知識を次の業務目標に結び付けてください。");
+                    .map(name -> "承認済み得意分野「" + name + "」を次の業務目標に結び付けてください。")
+                    .orElse("承認済み得意分野を次の業務目標に結び付けてください。");
         }
         if (!talent.experiences().isEmpty()) {
             AiAnalysisClient.ExperienceInput experience = talent.experiences().getFirst();

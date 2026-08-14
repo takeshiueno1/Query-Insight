@@ -49,6 +49,7 @@ class AiAnalysisFallbackIntegrationTests {
 
         assertThat(response.analysisMode()).isEqualTo("PROTOTYPE");
         assertThat(response.model()).isEqualTo("ルールベース V1");
+        assertThat(response.toString()).contains("得意分野").doesNotContain("専門知識");
         assertThat(client.calls).isZero();
         assertPersistedAndAudited(response.publicId(), "PROTOTYPE", "ルールベース V1", traceId(1));
     }

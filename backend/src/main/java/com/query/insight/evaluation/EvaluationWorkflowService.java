@@ -262,13 +262,15 @@ public class EvaluationWorkflowService {
 
     private Optional<Target> latestOpenTarget(String employeePublicId) {
         return jdbc.sql(targetSelect()
-                        + " WHERE e.public_id=:employeePublicId AND p.status='OPEN' ORDER BY p.start_date DESC LIMIT 1")
+                        + " WHERE e.public_id=:employeePublicId AND p.status='OPEN'"
+                        + " ORDER BY p.start_date DESC,t.id DESC LIMIT 1")
                 .param("employeePublicId", employeePublicId).query(this::mapTarget).optional();
     }
 
     private Optional<FinalResult> publishedFinalResult(Target target) {
         if (!"FINALIZED".equals(target.status()) || target.managerEvaluationId() == null) return Optional.empty();
-        Optional<ManagerEvaluation> managerResult = managerEvaluationOptional(target.managerEvaluationId())
+        Optional<ManagerEvaluation> managerResult = publishedManagerEvaluation(
+                        target.managerEvaluationId(), target.id())
                 .filter(manager -> "FINALIZED".equals(manager.status()));
         if (managerResult.isEmpty()) return Optional.empty();
         ManagerEvaluation manager = managerResult.get();
@@ -513,6 +515,18 @@ public class EvaluationWorkflowService {
                 FROM manager_evaluations WHERE id=:id
                 """)
                 .param("id", id).query((rs, row) -> new ManagerEvaluation(rs.getLong("id"), rs.getString("status"),
+                        rs.getString("summary"), rs.getBigDecimal("weighted_score"), rs.getString("grade"),
+                        (Long) rs.getObject("profile_status_snapshot_id")))
+                .optional();
+    }
+
+    private Optional<ManagerEvaluation> publishedManagerEvaluation(long id, long targetId) {
+        return jdbc.sql("""
+                SELECT id,status,summary,weighted_score,grade,profile_status_snapshot_id
+                FROM manager_evaluations WHERE id=:id AND target_id=:targetId
+                """)
+                .param("id", id).param("targetId", targetId)
+                .query((rs, row) -> new ManagerEvaluation(rs.getLong("id"), rs.getString("status"),
                         rs.getString("summary"), rs.getBigDecimal("weighted_score"), rs.getString("grade"),
                         (Long) rs.getObject("profile_status_snapshot_id")))
                 .optional();
