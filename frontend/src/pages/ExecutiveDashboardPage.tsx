@@ -31,7 +31,7 @@ export function ExecutiveDashboardPage() {
     && (deadline === 'ALL' || (deadline === 'LATE') === item.late)
     && (period === 'ALL' || item.periodName === period)
     && (department === 'ALL' || (item.departmentName ?? '未設定') === department)
-    && (grade === 'ALL' || item.finalGrade === grade))
+    && (grade === 'ALL' || (item.finalGrade ?? item.managerGrade) === grade))
   const baseEmpty = data.items.length === 0
 
   return <>
@@ -44,7 +44,7 @@ export function ExecutiveDashboardPage() {
       <label>所属<select value={department} onChange={(event) => setDepartment(event.target.value)}><option value="ALL">すべて</option>{departments.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
       <label>総合ランク<select value={grade} onChange={(event) => setGrade(event.target.value)}><option value="ALL">すべて</option>{ranks.map((rank) => <option key={rank} value={rank}>{rank}</option>)}</select></label>
     </section>
-    <section className="card table-card"><div className="card-header"><div><h2>全社評価一覧</h2><p>承認は一件ずつ内容を確認して行います。表示 {items.length}件</p></div></div><div className="table-scroll"><table><thead><tr><th>社員</th><th>所属</th><th>状態</th><th>総合ランク</th><th /></tr></thead><tbody>{items.map((item) => <tr key={item.publicId}><td>{item.employeeName}</td><td>{item.departmentName ?? '未設定'}</td><td><span className={`status ${item.status === 'FINALIZED' ? 'success' : item.late ? 'danger' : 'warning'}`}>{evaluationStatusLabels[item.status] ?? '確認中'}</span></td><td>{item.finalGrade ?? '—'}</td><td><Link className="text-link" to={`/executive/evaluations/${item.publicId}`}>詳細 →</Link></td></tr>)}{items.length === 0 && <tr><td className="empty" colSpan={5}><p role="status" aria-label="全社評価の状態">{baseEmpty ? '評価対象はありません。' : '条件に一致する評価はありません。'}</p></td></tr>}</tbody></table></div></section>
+    <section className="card table-card"><div className="card-header"><div><h2>全社評価一覧</h2><p>承認は一件ずつ内容を確認して行います。表示 {items.length}件</p></div></div><div className="table-scroll"><table><thead><tr><th>社員</th><th>所属</th><th>状態</th><th>総合ランク</th><th /></tr></thead><tbody>{items.map((item) => <tr key={item.publicId}><td>{item.employeeName}</td><td>{item.departmentName ?? '未設定'}</td><td><span className={`status ${item.status === 'FINALIZED' ? 'success' : item.late ? 'danger' : 'warning'}`}>{evaluationStatusLabels[item.status] ?? '確認中'}</span></td><td>{item.finalGrade ?? item.managerGrade ?? '—'}</td><td><Link className="text-link" to={`/executive/evaluations/${item.publicId}`}>詳細 →</Link></td></tr>)}{items.length === 0 && <tr><td className="empty" colSpan={5}><p role="status" aria-label="全社評価の状態">{baseEmpty ? '評価対象はありません。' : '条件に一致する評価はありません。'}</p></td></tr>}</tbody></table></div></section>
     <section className="card distribution-card"><h2>部門別・ランク分布</h2>{data.distributions.length ? <div className="distribution-list">{data.distributions.map((row) => <div key={`${row.departmentName}-${row.grade}`}><span>{row.departmentName} / {row.grade}</span><strong>{row.employeeCount}名</strong></div>)}</div> : <p>確定済み評価が増えると、ここに分布を表示します。</p>}</section>
   </>
 }

@@ -174,13 +174,16 @@ describe('評価承認画面', () => {
   })
 
   it('MANAGER_RETURNEDは上長が再編集・再提出し、本人差戻しUIを表示しない', async () => {
-    apiMock.mockResolvedValue(managerEvaluation)
+    apiMock.mockResolvedValueOnce(managerEvaluation)
+      .mockResolvedValueOnce({ ...managerEvaluation, status: 'MANAGER_IN_PROGRESS', targetVersion: 5 })
     renderRoute(<ManagerEvaluationDetailPage />, '/evaluations/manager/:publicId', '/evaluations/manager/T1')
     await screen.findByRole('heading', { name: '山田 太郎さんの上長評価' })
     expect(screen.queryByLabelText('本人への差戻し理由')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '本人へ差し戻す' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '下書き保存' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '最終承認者へ提出' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '下書き保存' }))
+    expect(await screen.findByText('上長入力中')).toBeInTheDocument()
   })
 
   it('提出前保存後のPOST失敗で最新versionを保持し、再試行を古いversionで送らない', async () => {
@@ -292,7 +295,7 @@ describe('評価承認画面', () => {
   it('経営者一覧は6rankで絞り込み、日本語状態と総合ランクだけを表示する', async () => {
     apiMock.mockResolvedValue({
       counts: { total: 1, pending: 1, finalized: 0, overdue: 0 },
-      items: [{ publicId: 'T1', employeeName: '山田 太郎', departmentName: '開発', status: 'EXECUTIVE_REVIEW', version: 4, finalScore: 85, finalGrade: 'F', periodName: '2026年度', late: false }],
+      items: [{ publicId: 'T1', employeeName: '山田 太郎', departmentName: '開発', status: 'EXECUTIVE_REVIEW', version: 4, finalScore: null, finalGrade: null, managerGrade: 'F', periodName: '2026年度', late: false }],
       distributions: [],
     })
     renderPage(<ExecutiveDashboardPage />)
@@ -307,6 +310,10 @@ describe('評価承認画面', () => {
     for (const rank of ['S', 'A', 'B', 'C', 'D', 'F']) {
       expect(gradeFilter).toContainElement(screen.getByRole('option', { name: rank }))
     }
+    fireEvent.change(gradeFilter, { target: { value: 'D' } })
+    expect(screen.queryByText('山田 太郎')).not.toBeInTheDocument()
+    fireEvent.change(gradeFilter, { target: { value: 'F' } })
+    expect(screen.getByText('山田 太郎').closest('tr')).toHaveTextContent('F')
   })
 
   it('経営者一覧は読込中、取得失敗と再試行、空一覧を別のARIA状態で表示する', async () => {
@@ -328,7 +335,7 @@ describe('評価承認画面', () => {
   it('全社役職者切替時に前利用者の全社一覧をキャッシュ表示しない', async () => {
     const dashboard = (employeeName: string) => ({
       counts: { total: 1, pending: 1, finalized: 0, overdue: 0 },
-      items: [{ publicId: 'T1', employeeName, departmentName: '開発', status: 'EXECUTIVE_REVIEW', version: 4, finalScore: null, finalGrade: null, periodName: '2026年度', late: false }],
+      items: [{ publicId: 'T1', employeeName, departmentName: '開発', status: 'EXECUTIVE_REVIEW', version: 4, finalScore: null, finalGrade: null, managerGrade: 'C', periodName: '2026年度', late: false }],
       distributions: [],
     })
     apiMock.mockResolvedValueOnce(dashboard('前利用者の全社対象')).mockResolvedValue(dashboard('次利用者の全社対象'))

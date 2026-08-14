@@ -163,34 +163,87 @@ class EvaluationApprovalControllerIntegrationTests {
     }
 
     @Test
-    void managerApiReturnsForbiddenForAValidButNonAssignedSubordinate() throws Exception {
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+    void managerApisHideNonexistentAndNonAssignedTargetsAfterRoleAndScopePrecheck() throws Exception {
         String targetPublicId = targetPublicId("QI0011");
+        long version = targetVersion(targetPublicId);
+        String beforeStatus = targetStatus(targetPublicId);
+        int beforeEvents = workflowEventCount(targetPublicId);
 
         mvc.perform(get("/api/v1/manager-evaluations/{id}", targetPublicId)
                 .with(officer("QI0002", "SUBORDINATES")))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/v1/manager-evaluations/{id}", "NO-SUCH-TARGET")
+                .with(officer("QI0002", "SUBORDINATES")))
+                .andExpect(status().isNotFound());
+        mvc.perform(put("/api/v1/manager-evaluations/{id}", targetPublicId)
+                .with(officer("QI0002", "SUBORDINATES"))
+                .contentType(MediaType.APPLICATION_JSON).content(managerPayload(version, true, "総評")))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/v1/manager-evaluations/{id}/submit", "NO-SUCH-TARGET")
+                .with(officer("QI0002", "SUBORDINATES"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of("version", 0))))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(get("/api/v1/manager-evaluations/{id}", targetPublicId).with(general("QI0011")))
                 .andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/manager-evaluations/{id}", targetPublicId)
+                .with(officer("QI0002", "ALL")))
+                .andExpect(status().isForbidden());
+
+        assertThat(targetStatus(targetPublicId)).isEqualTo(beforeStatus);
+        assertThat(targetVersion(targetPublicId)).isEqualTo(version);
+        assertThat(workflowEventCount(targetPublicId)).isEqualTo(beforeEvents);
     }
 
     @Test
     @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
-    void managerReturnToEmployeeIsRetiredWithoutChangingTheTargetState() throws Exception {
+    void retiredManagerReturnPreservesAuthExistenceVersionOrderAndHasNoSideEffects() throws Exception {
         String targetPublicId = targetPublicId("QI0015");
         String managerEmployeeNo = managerEmployeeNo(targetPublicId);
         jdbc.sql("UPDATE evaluation_targets SET status='SELF_SUBMITTED',current_manager_evaluation_id=NULL "
                         + "WHERE public_id=:publicId")
                 .param("publicId", targetPublicId).update();
         long version = targetVersion(targetPublicId);
+        int beforeEvents = workflowEventCount(targetPublicId);
+        String body = objectMapper.writeValueAsString(Map.of(
+                "version", version, "reason", "本人の再入力を依頼します"));
 
+        mvc.perform(post("/api/v1/manager-evaluations/{id}/return", targetPublicId)
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/v1/manager-evaluations/{id}/return", targetPublicId)
+                .with(general("QI0015")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/manager-evaluations/{id}/return", targetPublicId)
+                .with(officer(managerEmployeeNo, "ALL")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/manager-evaluations/{id}/return", targetPublicId)
+                .with(officer("QI0002", "SUBORDINATES"))
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/v1/manager-evaluations/{id}/return", "NO-SUCH-TARGET")
+                .with(officer(managerEmployeeNo, "SUBORDINATES"))
+                .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
         mvc.perform(post("/api/v1/manager-evaluations/{id}/return", targetPublicId)
                 .with(officer(managerEmployeeNo, "SUBORDINATES"))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(Map.of(
-                        "version", version, "reason", "本人の再入力を依頼します"))))
+                        "version", version - 1, "reason", "本人の再入力を依頼します"))))
+                .andExpect(status().isConflict());
+
+        mvc.perform(post("/api/v1/manager-evaluations/{id}/return", targetPublicId)
+                .with(officer(managerEmployeeNo, "SUBORDINATES"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
                 .andExpect(status().isGone())
                 .andExpect(jsonPath("$.code").value("SELF_EVALUATION_RETURN_RETIRED"));
 
-        assertThat(jdbc.sql("SELECT status FROM evaluation_targets WHERE public_id=:publicId")
-                .param("publicId", targetPublicId).query(String.class).single()).isEqualTo("SELF_SUBMITTED");
+        assertThat(targetStatus(targetPublicId)).isEqualTo("SELF_SUBMITTED");
+        assertThat(targetVersion(targetPublicId)).isEqualTo(version);
+        assertThat(workflowEventCount(targetPublicId)).isEqualTo(beforeEvents);
     }
 
     @Test
@@ -304,6 +357,17 @@ class EvaluationApprovalControllerIntegrationTests {
     private long targetVersion(String targetPublicId) {
         return jdbc.sql("SELECT version FROM evaluation_targets WHERE public_id=:publicId")
                 .param("publicId", targetPublicId).query(Long.class).single();
+    }
+
+    private String targetStatus(String targetPublicId) {
+        return jdbc.sql("SELECT status FROM evaluation_targets WHERE public_id=:publicId")
+                .param("publicId", targetPublicId).query(String.class).single();
+    }
+
+    private int workflowEventCount(String targetPublicId) {
+        return jdbc.sql("SELECT COUNT(*) FROM evaluation_workflow_events ev JOIN evaluation_targets t "
+                        + "ON t.id=ev.target_id WHERE t.public_id=:publicId")
+                .param("publicId", targetPublicId).query(Integer.class).single();
     }
 
     private String managerEmployeeNo(String targetPublicId) {

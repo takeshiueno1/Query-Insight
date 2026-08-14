@@ -158,7 +158,7 @@ export type ManagerEvaluation = {
 
 export type ExecutiveDashboard = {
   counts: { total: number; pending: number; finalized: number; overdue: number }
-  items: Array<{ publicId: string; employeeName: string; departmentName: string | null; status: string; version: number; finalScore: number | null; finalGrade: EvaluationRank | null; periodName: string; late: boolean }>
+  items: Array<{ publicId: string; employeeName: string; departmentName: string | null; status: string; version: number; finalScore: number | null; finalGrade: EvaluationRank | null; managerGrade: EvaluationRank | null; periodName: string; late: boolean }>
   distributions: Array<{ departmentName: string; grade: string; employeeCount: number }>
 }
 

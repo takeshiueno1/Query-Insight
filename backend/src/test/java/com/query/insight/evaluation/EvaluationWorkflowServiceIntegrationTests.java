@@ -72,14 +72,14 @@ class EvaluationWorkflowServiceIntegrationTests {
     }
 
     @Test
-    void nonAssignedManagerCannotOpenTarget() {
+    void nonAssignedManagerCannotDistinguishTargetFromMissingTarget() {
         Actor otherManager = actor("qi0006@query.local");
         Target target = target("QI0003");
 
         assertThatThrownBy(() -> service.managerDetail(otherManager.accountPublicId(),
                 otherManager.employeePublicId(), target.publicId()))
                 .isInstanceOfSatisfying(ApiException.class,
-                        exception -> assertThat(exception.status()).isEqualTo(HttpStatus.FORBIDDEN));
+                        exception -> assertThat(exception.status()).isEqualTo(HttpStatus.NOT_FOUND));
     }
 
     @Test
@@ -131,6 +131,10 @@ class EvaluationWorkflowServiceIntegrationTests {
         jdbc.sql("UPDATE evaluation_targets SET status='SELF_RETURNED',current_manager_evaluation_id=NULL "
                         + "WHERE public_id=:publicId")
                 .param("publicId", target.publicId()).update();
+        int saveEvents = countWorkflowAction(target.publicId(), "MANAGER_SAVE");
+        int submitEvents = countWorkflowAction(target.publicId(), "MANAGER_SUBMIT");
+        int saveAudits = countAuditAction(target.publicId(), "EVALUATION_MANAGER_SAVE");
+        int submitAudits = countAuditAction(target.publicId(), "EVALUATION_MANAGER_SUBMIT");
 
         var saved = service.saveManager(manager.employeePublicId(), manager.accountPublicId(), target.publicId(),
                 new EvaluationWorkflowService.ManagerSaveRequest(target.version(), rankDetails(true),
@@ -140,7 +144,29 @@ class EvaluationWorkflowServiceIntegrationTests {
                 target.publicId(), saved.targetVersion(), "TRACE-SUBMIT-RECOVERED");
 
         assertThat(saved.status()).isEqualTo("MANAGER_IN_PROGRESS");
+        assertThat(saved.targetVersion()).isEqualTo(target.version() + 1);
         assertThat(submitted.status()).isEqualTo("EXECUTIVE_REVIEW");
+        assertThat(submitted.targetVersion()).isEqualTo(target.version() + 2);
+        assertThat(countWorkflowAction(target.publicId(), "MANAGER_SAVE")).isEqualTo(saveEvents + 1);
+        assertThat(countWorkflowAction(target.publicId(), "MANAGER_SUBMIT")).isEqualTo(submitEvents + 1);
+        assertThat(countAuditAction(target.publicId(), "EVALUATION_MANAGER_SAVE")).isEqualTo(saveAudits + 1);
+        assertThat(countAuditAction(target.publicId(), "EVALUATION_MANAGER_SUBMIT")).isEqualTo(submitAudits + 1);
+
+        String notificationPrefix = "EVAL:" + target.publicId() + ":MANAGER_SUBMIT:"
+                + submitted.targetVersion() + ":%";
+        assertThat(countNotifications(notificationPrefix)).isEqualTo(activeExecutiveCount());
+        assertThat(countDistinctNotificationRecipients(notificationPrefix)).isEqualTo(activeExecutiveCount());
+
+        assertThatThrownBy(() -> service.submitManager(manager.employeePublicId(), manager.accountPublicId(),
+                target.publicId(), saved.targetVersion(), "TRACE-DUPLICATE-RECOVERED-SUBMIT"))
+                .isInstanceOfSatisfying(ApiException.class,
+                        exception -> assertThat(exception.status()).isEqualTo(HttpStatus.CONFLICT));
+        assertThat(countWorkflowAction(target.publicId(), "MANAGER_SAVE")).isEqualTo(saveEvents + 1);
+        assertThat(countWorkflowAction(target.publicId(), "MANAGER_SUBMIT")).isEqualTo(submitEvents + 1);
+        assertThat(countAuditAction(target.publicId(), "EVALUATION_MANAGER_SAVE")).isEqualTo(saveAudits + 1);
+        assertThat(countAuditAction(target.publicId(), "EVALUATION_MANAGER_SUBMIT")).isEqualTo(submitAudits + 1);
+        assertThat(countNotifications(notificationPrefix)).isEqualTo(activeExecutiveCount());
+        assertThat(countDistinctNotificationRecipients(notificationPrefix)).isEqualTo(activeExecutiveCount());
     }
 
     @Test
@@ -190,6 +216,7 @@ class EvaluationWorkflowServiceIntegrationTests {
         var saved = service.saveManager(manager.employeePublicId(), manager.accountPublicId(), target.publicId(),
                 new EvaluationWorkflowService.ManagerSaveRequest(returned.targetVersion(), rankDetails(true),
                         "判断根拠を補足しました"), "TRACE-MANAGER-RESAVE");
+        assertThat(saved.status()).isEqualTo("MANAGER_IN_PROGRESS");
         var submitted = service.submitManager(manager.employeePublicId(), manager.accountPublicId(), target.publicId(),
                 saved.targetVersion(), "TRACE-MANAGER-RESUBMIT");
         var finalized = service.approve(executive.accountPublicId(), target.publicId(), submitted.targetVersion(),
@@ -357,6 +384,37 @@ class EvaluationWorkflowServiceIntegrationTests {
     private int count(String table, String targetPublicId) {
         return jdbc.sql("SELECT COUNT(*) FROM " + table + " e JOIN evaluation_targets t ON t.id=e.target_id WHERE t.public_id=:publicId")
                 .param("publicId", targetPublicId).query(Integer.class).single();
+    }
+
+    private int countWorkflowAction(String targetPublicId, String action) {
+        return jdbc.sql("SELECT COUNT(*) FROM evaluation_workflow_events ev JOIN evaluation_targets t "
+                        + "ON t.id=ev.target_id WHERE t.public_id=:publicId AND ev.action=:action")
+                .param("publicId", targetPublicId).param("action", action).query(Integer.class).single();
+    }
+
+    private int countAuditAction(String targetPublicId, String action) {
+        return jdbc.sql("SELECT COUNT(*) FROM audit_logs WHERE target_public_id=:publicId AND action=:action")
+                .param("publicId", targetPublicId).param("action", action).query(Integer.class).single();
+    }
+
+    private int countNotifications(String dedupePattern) {
+        return jdbc.sql("SELECT COUNT(*) FROM notifications WHERE dedupe_key LIKE :pattern")
+                .param("pattern", dedupePattern).query(Integer.class).single();
+    }
+
+    private int countDistinctNotificationRecipients(String dedupePattern) {
+        return jdbc.sql("SELECT COUNT(DISTINCT recipient_account_id) FROM notifications WHERE dedupe_key LIKE :pattern")
+                .param("pattern", dedupePattern).query(Integer.class).single();
+    }
+
+    private int activeExecutiveCount() {
+        return jdbc.sql("""
+                SELECT COUNT(DISTINCT a.id) FROM accounts a
+                JOIN permission_grants g ON g.account_id=a.id AND g.revoked_at IS NULL
+                JOIN roles r ON r.id=g.role_id AND r.code='OFFICER' AND r.status='ACTIVE'
+                WHERE a.status='ACTIVE' AND g.scope_type='ALL' AND g.valid_from<=CURRENT_TIMESTAMP
+                  AND (g.valid_to IS NULL OR g.valid_to>CURRENT_TIMESTAMP)
+                """).query(Integer.class).single();
     }
 
     private static void assertBadRequest(org.assertj.core.api.ThrowableAssert.ThrowingCallable action) {

@@ -84,8 +84,8 @@ public class EvaluationWorkflowService {
     @Transactional
     public ManagerEvaluationResponse returnToEmployee(String evaluatorEmployeePublicId, String actorAccountPublicId,
             String targetPublicId, long version, String reason, String traceId) {
-        requireReason(reason);
         requireManager(actorAccountPublicId, evaluatorEmployeePublicId);
+        requireReason(reason);
         Target target = managerTarget(evaluatorEmployeePublicId, targetPublicId);
         requireVersion(target, version);
         throw new ApiException(HttpStatus.GONE, "SELF_EVALUATION_RETURN_RETIRED",
@@ -148,16 +148,17 @@ public class EvaluationWorkflowService {
                         rs.getInt("finalized"), rs.getInt("overdue"))).single();
         List<ExecutiveListItem> items = jdbc.sql("""
                 SELECT t.public_id,CONCAT(e.last_name,' ',e.first_name) employee_name,d.name department_name,
-                  t.status,t.version,t.final_score,t.final_grade,p.name period_name,
+                  t.status,t.version,t.final_score,t.final_grade,m.grade manager_grade,p.name period_name,
                   CASE WHEN t.status='DRAFT' THEN p.self_deadline
                     WHEN t.status IN ('SELF_RETURNED','SELF_SUBMITTED','MANAGER_IN_PROGRESS','MANAGER_RETURNED') THEN p.manager_deadline
                     ELSE NULL END active_deadline
                 FROM evaluation_targets t JOIN employees e ON e.id=t.employee_id
                 LEFT JOIN departments d ON d.id=e.department_id JOIN evaluation_periods p ON p.id=t.period_id
+                LEFT JOIN manager_evaluations m ON m.id=t.current_manager_evaluation_id
                 ORDER BY CASE WHEN t.status='EXECUTIVE_REVIEW' THEN 0 ELSE 1 END,p.manager_deadline,t.public_id
                 """).query((rs, row) -> new ExecutiveListItem(rs.getString("public_id"), rs.getString("employee_name"),
                         rs.getString("department_name"), rs.getString("status"), rs.getLong("version"),
-                        rs.getBigDecimal("final_score"), rs.getString("final_grade"),
+                        rs.getBigDecimal("final_score"), rs.getString("final_grade"), rs.getString("manager_grade"),
                         rs.getString("period_name"), isPast(rs.getTimestamp("active_deadline")))).list();
         List<Distribution> distributions = jdbc.sql("""
                 SELECT '全社' department_name,t.final_grade,COUNT(*) employee_count
@@ -449,16 +450,12 @@ public class EvaluationWorkflowService {
     }
 
     private Target managerTarget(String evaluatorEmployeePublicId, String targetPublicId) {
-        Target target = target(targetPublicId);
-        long evaluatorId = jdbc.sql("SELECT id FROM employees WHERE public_id=:employeePublicId")
-                .param("employeePublicId", evaluatorEmployeePublicId).query(Long.class).optional()
-                .orElseThrow(() -> new ApiException(HttpStatus.FORBIDDEN, "MANAGER_ASSIGNMENT_REQUIRED",
-                        "直属部下の評価だけを操作できます"));
-        if (target.evaluatorId() != evaluatorId) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "MANAGER_ASSIGNMENT_REQUIRED",
-                    "直属部下の評価だけを操作できます");
-        }
-        return target;
+        return jdbc.sql(targetSelect() + """
+                WHERE t.public_id=:targetPublicId
+                  AND t.evaluator_employee_id=(SELECT id FROM employees WHERE public_id=:employeePublicId)
+                """).param("targetPublicId", targetPublicId)
+                .param("employeePublicId", evaluatorEmployeePublicId).query(this::mapTarget).optional()
+                .orElseThrow(() -> notFound("評価対象が見つかりません"));
     }
 
     private Target target(String targetPublicId) {
@@ -629,7 +626,8 @@ public class EvaluationWorkflowService {
     public record DashboardCounts(int total, int pending, int finalized, int overdue) {
     }
     public record ExecutiveListItem(String publicId, String employeeName, String departmentName, String status,
-            long version, BigDecimal finalScore, String finalGrade, String periodName, boolean late) {
+            long version, BigDecimal finalScore, String finalGrade, String managerGrade, String periodName,
+            boolean late) {
     }
     public record Distribution(String departmentName, String grade, int employeeCount) {
     }

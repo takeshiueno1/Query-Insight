@@ -30,7 +30,7 @@ class EvaluationWorkflowTests {
         assertThat(EvaluationWorkflow.requireTransition(SELF_RETURNED, MANAGER_SAVE)).isEqualTo(MANAGER_IN_PROGRESS);
         assertThat(EvaluationWorkflow.requireTransition(SELF_SUBMITTED, MANAGER_SAVE)).isEqualTo(MANAGER_IN_PROGRESS);
         assertThat(EvaluationWorkflow.requireTransition(MANAGER_IN_PROGRESS, MANAGER_SAVE)).isEqualTo(MANAGER_IN_PROGRESS);
-        assertThat(EvaluationWorkflow.requireTransition(MANAGER_RETURNED, MANAGER_SAVE)).isEqualTo(MANAGER_RETURNED);
+        assertThat(EvaluationWorkflow.requireTransition(MANAGER_RETURNED, MANAGER_SAVE)).isEqualTo(MANAGER_IN_PROGRESS);
         assertThat(EvaluationWorkflow.requireTransition(MANAGER_IN_PROGRESS, MANAGER_SUBMIT)).isEqualTo(EXECUTIVE_REVIEW);
         assertThat(EvaluationWorkflow.requireTransition(MANAGER_RETURNED, MANAGER_SUBMIT)).isEqualTo(EXECUTIVE_REVIEW);
         assertThat(EvaluationWorkflow.requireTransition(EXECUTIVE_REVIEW, EXECUTIVE_RETURN)).isEqualTo(MANAGER_RETURNED);
