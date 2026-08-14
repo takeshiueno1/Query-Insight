@@ -14,6 +14,7 @@ public class AnalysisPrivacySanitizer {
     private static final Pattern EMAIL = Pattern.compile(
             "(?i)(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}(?![A-Z0-9._%+-])");
     private static final Pattern PUBLIC_ID = Pattern.compile("(?i)(?<![A-Z0-9])[A-Z0-9]{26}(?![A-Z0-9])");
+    private static final Pattern EMPLOYEE_NUMBER = Pattern.compile("(?i)(?<![A-Z0-9])QI\\d{4,}(?![A-Z0-9])");
 
     private final JdbcClient jdbc;
 
@@ -21,9 +22,9 @@ public class AnalysisPrivacySanitizer {
         this.jdbc = jdbc;
     }
 
-    SanitizedRequest sanitize(long employeeId, long targetId, String periodName,
+    SanitizedRequest sanitize(String periodName,
             List<AiAnalysisClient.AxisInput> axes, AiAnalysisClient.TalentProfileInput talent) {
-        List<String> exactValues = identityValues(employeeId, targetId);
+        List<String> exactValues = knownIdentityValues();
         List<AiAnalysisClient.AxisInput> sanitizedAxes = axes.stream()
                 .map(axis -> new AiAnalysisClient.AxisInput(sanitize(axis.axisCode(), exactValues),
                         sanitize(axis.displayName(), exactValues), axis.level(),
@@ -48,41 +49,35 @@ public class AnalysisPrivacySanitizer {
         return new SanitizedRequest(sanitize(periodName, exactValues), sanitizedAxes, sanitizedTalent);
     }
 
-    private List<String> identityValues(long employeeId, long targetId) {
-        Identity identity = jdbc.sql("""
-                SELECT e.last_name,e.first_name,e.email,e.employee_no,e.public_id employee_public_id,
-                  d.name department_name,d.code department_code,d.public_id department_public_id,
-                  a.public_id account_public_id,a.login_id_normalized,t.public_id target_public_id
-                FROM employees e
-                JOIN accounts a ON a.employee_id=e.id
-                JOIN evaluation_targets t ON t.id=:targetId AND t.employee_id=e.id
-                LEFT JOIN departments d ON d.id=e.department_id
-                WHERE e.id=:employeeId
-                """).param("employeeId", employeeId).param("targetId", targetId)
-                .query((rs, row) -> new Identity(rs.getString("last_name"), rs.getString("first_name"),
-                        rs.getString("email"), rs.getString("employee_no"), rs.getString("employee_public_id"),
-                        rs.getString("department_name"), rs.getString("department_code"),
-                        rs.getString("department_public_id"), rs.getString("account_public_id"),
-                        rs.getString("login_id_normalized"), rs.getString("target_public_id")))
-                .single();
+    private List<String> knownIdentityValues() {
         Set<String> values = new LinkedHashSet<>();
-        add(values, identity.lastName(), identity.firstName(), identity.email(), identity.employeeNo(),
-                identity.employeePublicId(), identity.departmentName(), identity.departmentCode(),
-                identity.departmentPublicId(), identity.accountPublicId(), identity.loginId(),
-                identity.targetPublicId());
-        if (identity.lastName() != null && identity.firstName() != null) {
-            add(values, identity.lastName() + identity.firstName(), identity.firstName() + identity.lastName(),
-                    identity.lastName() + " " + identity.firstName(),
-                    identity.firstName() + " " + identity.lastName(),
-                    identity.lastName() + "　" + identity.firstName(),
-                    identity.firstName() + "　" + identity.lastName());
-        }
+        jdbc.sql("""
+                SELECT employee_no,last_name,first_name,email,public_id FROM employees
+                """).query((rs, row) -> {
+                    String lastName = rs.getString("last_name");
+                    String firstName = rs.getString("first_name");
+                    add(values, rs.getString("employee_no"), lastName, firstName, rs.getString("email"),
+                            rs.getString("public_id"), lastName + firstName, firstName + lastName,
+                            lastName + " " + firstName, firstName + " " + lastName,
+                            lastName + "　" + firstName, firstName + "　" + lastName);
+                    return 0;
+                }).list();
+        jdbc.sql("SELECT code,name,public_id FROM departments").query((rs, row) -> {
+            add(values, rs.getString("code"), rs.getString("name"), rs.getString("public_id"));
+            return 0;
+        }).list();
+        addColumn(values, "SELECT public_id FROM accounts");
+        addColumn(values, "SELECT public_id FROM evaluation_targets");
         return values.stream().sorted(Comparator.comparingInt(String::length).reversed()).toList();
+    }
+
+    private void addColumn(Set<String> values, String sql) {
+        jdbc.sql(sql).query(String.class).list().forEach(value -> add(values, value));
     }
 
     private static void add(Set<String> values, String... candidates) {
         for (String candidate : candidates) {
-            if (candidate != null && !candidate.isBlank()) values.add(candidate.trim());
+            if (candidate != null && candidate.trim().length() >= 2) values.add(candidate.trim());
         }
     }
 
@@ -90,16 +85,12 @@ public class AnalysisPrivacySanitizer {
         if (input == null) return null;
         String sanitized = EMAIL.matcher(input).replaceAll(REMOVED);
         sanitized = PUBLIC_ID.matcher(sanitized).replaceAll(REMOVED);
+        sanitized = EMPLOYEE_NUMBER.matcher(sanitized).replaceAll(REMOVED);
         for (String value : exactValues) sanitized = sanitized.replace(value, REMOVED);
         return sanitized;
     }
 
     record SanitizedRequest(String periodName, List<AiAnalysisClient.AxisInput> axes,
             AiAnalysisClient.TalentProfileInput talentProfile) {
-    }
-
-    private record Identity(String lastName, String firstName, String email, String employeeNo,
-            String employeePublicId, String departmentName, String departmentCode, String departmentPublicId,
-            String accountPublicId, String loginId, String targetPublicId) {
     }
 }

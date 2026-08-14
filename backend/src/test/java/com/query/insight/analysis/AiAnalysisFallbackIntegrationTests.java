@@ -145,6 +145,45 @@ class AiAnalysisFallbackIntegrationTests {
     }
 
     @Test
+    void aiRequestRemovesOtherEmployeesAndDepartmentsFromFreeText() {
+        actor = actor("QI0005");
+        StubClient client = new StubClient();
+        OtherIdentity other = jdbc.sql("""
+                SELECT e.employee_no,e.last_name,e.first_name,e.email,e.public_id employee_public_id,
+                  d.code department_code,d.name department_name,d.public_id department_public_id,
+                  a.public_id account_public_id,t.public_id target_public_id
+                FROM employees e
+                JOIN accounts a ON a.employee_id=e.id
+                JOIN evaluation_targets t ON t.employee_id=e.id
+                LEFT JOIN departments d ON d.id=e.department_id
+                WHERE e.employee_no='QI0006'
+                ORDER BY t.id LIMIT 1
+                """).query((rs, row) -> new OtherIdentity(rs.getString("employee_no"),
+                        rs.getString("last_name"), rs.getString("first_name"), rs.getString("email"),
+                        rs.getString("employee_public_id").trim(), rs.getString("department_code"),
+                        rs.getString("department_name"), rs.getString("department_public_id").trim(),
+                        rs.getString("account_public_id").trim(), rs.getString("target_public_id").trim()))
+                .single();
+        String genericEmployeeNo = "QI12345";
+        String sensitiveText = String.join(" / ", other.values()) + " / "
+                + other.lastName() + other.firstName() + " / "
+                + other.lastName() + " " + other.firstName() + " / " + genericEmployeeNo;
+        jdbc.sql("""
+                UPDATE manager_evaluation_details SET comment=:value WHERE manager_evaluation_id=(
+                  SELECT t.current_manager_evaluation_id FROM evaluation_targets t
+                  JOIN employees e ON e.id=t.employee_id WHERE e.public_id=:employeePublicId)
+                """).param("value", sensitiveText).param("employeePublicId", actor.employeePublicId()).update();
+
+        service(client, true).create(actor.employeePublicId(), actor.accountPublicId(), traceId(8));
+
+        String captured = client.axes.toString();
+        assertThat(captured).contains("[除去]")
+                .doesNotContain(other.values().toArray(String[]::new))
+                .doesNotContain(other.lastName() + other.firstName(),
+                        other.lastName() + " " + other.firstName(), genericEmployeeNo);
+    }
+
+    @Test
     void successfulAiKeepsModelOutputPersistenceAuditAndExcludesPrivateEvaluation() {
         actor = actor("QI0005");
         StubClient client = new StubClient();
@@ -274,6 +313,15 @@ class AiAnalysisFallbackIntegrationTests {
         List<String> values() {
             return List.of(lastName, firstName, email, employeeNo, employeePublicId, departmentName,
                     departmentCode, departmentPublicId, accountPublicId, loginId, targetPublicId);
+        }
+    }
+
+    private record OtherIdentity(String employeeNo, String lastName, String firstName, String email,
+            String employeePublicId, String departmentCode, String departmentName, String departmentPublicId,
+            String accountPublicId, String targetPublicId) {
+        List<String> values() {
+            return List.of(employeeNo, lastName, firstName, email, employeePublicId, departmentCode,
+                    departmentName, departmentPublicId, accountPublicId, targetPublicId);
         }
     }
 

@@ -108,7 +108,7 @@ public class AiAnalysisService {
         if (!enabled) return prototype.analyze(profileStatus, talentProfile);
         try {
             AnalysisPrivacySanitizer.SanitizedRequest request = privacySanitizer.sanitize(
-                    context.employeeId(), context.targetId(), context.periodName(), axes, talentProfile);
+                    context.periodName(), axes, talentProfile);
             AiAnalysisClient.AnalysisPayload payload = client.analyze(
                     request.periodName(), request.axes(), request.talentProfile());
             return new AnalysisResponse(null, context.periodName(), payload.summary(), payload.strengths(),

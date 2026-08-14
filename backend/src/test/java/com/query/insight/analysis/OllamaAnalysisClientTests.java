@@ -39,7 +39,8 @@ class OllamaAnalysisClientTests {
                 .contains("TECHNICAL", "Java", "システム設計", "開発リーダー", "シニアソフトウェアエンジニア")
                 .doesNotContain("employeePublicId", "email", "employeeNo");
         assertThat(request.path("messages").get(0).path("content").asText())
-                .contains("ランク判定", "昇進", "昇格", "採用", "解雇", "報酬", "配置判断", "人事判断");
+                .contains("ランク判定", "昇進", "昇格", "降格", "採用", "解雇", "報酬", "給与", "賞与",
+                        "配置判断", "異動", "人事判断");
     }
 
     @Test
@@ -75,13 +76,23 @@ class OllamaAnalysisClientTests {
 
     @Test
     void rejectsRankAndPersonnelDecisionsInEveryFreeTextField() throws Exception {
-        List<String> forbiddenTerms = List.of("Sランク", "A評価", "ランク判定", "昇進", "昇格", "採用", "解雇", "報酬", "配置判断", "人事判断");
+        List<String> forbiddenTerms = List.of("Sランク", "A評価", "Bランク相当", "C評価", "S・評価",
+                "ランクを判定", "評価は判定", "昇進", "昇格", "採用", "解雇", "報酬", "配置判断", "人事判断",
+                "異動を推奨", "降格候補", "給与を決定", "賞与判断");
         for (String forbiddenTerm : forbiddenTerms) {
             assertForbidden(responseBody(content(forbiddenTerm, "技術力", "障害対応の実績", "設計レビューを主導")));
         }
         assertForbidden(responseBody(content("安定した遂行力", "昇進候補", "障害対応の実績", "設計レビューを主導")));
         assertForbidden(responseBody(content("安定した遂行力", "技術力", "昇格させる根拠", "設計レビューを主導")));
         assertForbidden(responseBody(content("安定した遂行力", "技術力", "障害対応の実績", "配置判断を行う")));
+    }
+
+    @Test
+    void allowsOrdinaryTechnicalUseOfPlacementWord() throws Exception {
+        String response = responseBody(content("安定した遂行力", "設計力",
+                "コンポーネントの配置技術を改善した", "配置技術のレビューを主導する"));
+
+        assertThat(client.parseResponseBody(response).summary()).contains("遂行力");
     }
 
     private void assertForbidden(String responseBody) {
