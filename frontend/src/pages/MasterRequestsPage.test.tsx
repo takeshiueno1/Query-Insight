@@ -49,6 +49,26 @@ describe('MasterRequestsPage', () => {
     }))
   })
 
+  it.each([
+    ['空の種類', '', '有効な説明', '種類', '種類を入力してください'],
+    ['101文字の種類', 'T'.repeat(101), '有効な説明', '種類', '種類は100文字以内で入力してください'],
+    ['空の説明', '資格', '', '説明', '説明を入力してください'],
+    ['1001文字の説明', '資格', 'D'.repeat(1001), '説明', '説明は1000文字以内で入力してください'],
+  ])('%sは入力欄に接続した日本語エラーを表示する', async (_case, type, description, field, message) => {
+    renderPage()
+    fireEvent.change(screen.getByLabelText('種類'), { target: { value: type } })
+    fireEvent.change(screen.getByLabelText('説明'), { target: { value: description } })
+    fireEvent.click(screen.getByRole('button', { name: '申請する' }))
+
+    const error = await screen.findByText(message)
+    const input = screen.getByLabelText(field)
+    expect(error).toHaveAttribute('role', 'alert')
+    expect(error.id).not.toBe('')
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveAttribute('aria-describedby', error.id)
+    expect(apiMock).not.toHaveBeenCalledWith('/api/v1/master-requests', expect.anything())
+  })
+
   it('履歴を日本語の状態と2項目で表示し内部JSONを表示しない', async () => {
     apiMock.mockResolvedValue([{
       publicId: 'R2', type: 'クラウド資格', description: 'AWS認定の追加を希望します', status: 'RETURNED',

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -42,15 +43,15 @@ export function MasterRequestsPage() {
   const client = useQueryClient()
   const [message, setMessage] = useState<string | null>(null)
   const [reasons, setReasons] = useState<Record<string, string>>({})
-  const { register, handleSubmit, reset } = useForm<RequestValues>()
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<RequestValues>({
+    resolver: zodResolver(requestSchema),
+  })
   const reviewer = user?.roles.includes('ADMIN') ?? false
   const query = useQuery({ queryKey: ['master-requests'], queryFn: () => api<MasterRequest[]>('/api/v1/master-requests/me') })
   const reviewQuery = useQuery({ queryKey: ['admin-master-requests'], queryFn: () => api<MasterRequest[]>('/api/v1/admin/master-requests?status=SUBMITTED'), enabled: reviewer })
   const mutation = useMutation({
     mutationFn: (values: RequestValues) => {
-      const parsed = requestSchema.safeParse(values)
-      if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? '入力内容を確認してください')
-      return api<MasterRequest>('/api/v1/master-requests', { method: 'POST', body: JSON.stringify(parsed.data) })
+      return api<MasterRequest>('/api/v1/master-requests', { method: 'POST', body: JSON.stringify(values) })
     },
     onSuccess: async () => {
       reset()
@@ -75,10 +76,12 @@ export function MasterRequestsPage() {
     <div className="page-heading"><div><h1>マスタ追加申請</h1><p>選択肢にないマスタ候補を提案できます</p></div></div>
     <div className="decision-grid">
       <section className="card talent-form">
-        <label>種類<input maxLength={100} {...register('type')} /></label>
-        <label>説明<textarea maxLength={1000} {...register('description')} /></label>
+        <label>種類<input maxLength={100} aria-invalid={Boolean(errors.type)} aria-describedby={errors.type ? 'master-request-type-error' : undefined} {...register('type')} /></label>
+        {errors.type && <p id="master-request-type-error" role="alert" className="field-error">{errors.type.message}</p>}
+        <label>説明<textarea maxLength={1000} aria-invalid={Boolean(errors.description)} aria-describedby={errors.description ? 'master-request-description-error' : undefined} {...register('description')} /></label>
+        {errors.description && <p id="master-request-description-error" role="alert" className="field-error">{errors.description.message}</p>}
         {message && <div role="status" className={mutation.isError || decision.isError ? 'error-banner' : 'success-banner'}>{message}</div>}
-        <div className="form-actions"><button className="primary-button" disabled={mutation.isPending} onClick={handleSubmit((values) => mutation.mutate(values))}>申請する</button></div>
+        <div className="form-actions"><button className="primary-button" disabled={mutation.isPending} onClick={handleSubmit((values) => mutation.mutate(values), () => setMessage(null))}>申請する</button></div>
       </section>
       <section className="card"><h2>自分の申請</h2>{query.data?.map((item) => <article key={item.publicId} className="notice"><RequestSummary item={item} /></article>)}</section>
       {reviewer && <section className="card workflow-history"><h2>承認待ち</h2>{reviewQuery.data?.map((item) => <article key={item.publicId}><RequestSummary item={item} /><label>差戻し理由<input value={reasons[item.publicId] ?? ''} onChange={(event) => setReasons((old) => ({ ...old, [item.publicId]: event.target.value }))} /></label><div className="form-actions"><button className="secondary-button" disabled={!reasons[item.publicId]?.trim()} onClick={() => decision.mutate({ item, action: 'return' })}>差し戻す</button><button className="primary-button" onClick={() => decision.mutate({ item, action: 'approve' })}>承認する</button></div></article>)}</section>}

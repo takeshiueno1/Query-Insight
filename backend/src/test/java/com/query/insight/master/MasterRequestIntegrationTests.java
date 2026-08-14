@@ -157,30 +157,50 @@ class MasterRequestIntegrationTests {
     }
 
     @Test
-    void legacyRequestRemainsReadableAndCanUseItsCompletePayloadOnApproval() throws Exception {
+    void migratedLegacyRequestsUseSafeJapaneseDisplayWithoutChangingStoredHistory() throws Exception {
         Actor employee = actor("QITEST");
         Actor administrator = actor("QI0001");
-        String publicId = PublicIdGenerator.next();
+        String skillPublicId = PublicIdGenerator.next();
+        String skillPayload = """
+                {"code":"LEGACY_CLOUD_TASK6","name":"旧クラウド技術","category":"技術","description":"旧契約"}
+                """.trim();
         jdbc.sql("""
                 INSERT INTO master_addition_requests(public_id,requested_by_account_id,master_type,
                   proposed_payload_json,request_type,request_description,status,version,requested_at)
                 VALUES (:publicId,(SELECT id FROM accounts WHERE public_id=:accountId),'SKILL',
-                  CAST(:payload AS JSONB),'SKILL','旧クラウド技術の申請','SUBMITTED',0,CURRENT_TIMESTAMP)
-                """).param("publicId", publicId).param("accountId", employee.accountPublicId())
-                .param("payload", """
-                        {"code":"LEGACY_CLOUD_TASK6","name":"旧クラウド技術","category":"技術","description":"旧契約"}
-                        """).update();
+                  CAST(:payload AS JSONB),'SKILL',:payload,'SUBMITTED',0,CURRENT_TIMESTAMP)
+                """).param("publicId", skillPublicId).param("accountId", employee.accountPublicId())
+                .param("payload", skillPayload).update();
+        String certificationPublicId = PublicIdGenerator.next();
+        String certificationPayload = """
+                {"code":"LEGACY_CERT_TASK6","name":"旧クラウド資格","issuer":"旧認定団体"}
+                """.trim();
+        jdbc.sql("""
+                INSERT INTO master_addition_requests(public_id,requested_by_account_id,master_type,
+                  proposed_payload_json,request_type,request_description,status,version,requested_at)
+                VALUES (:publicId,(SELECT id FROM accounts WHERE public_id=:accountId),'CERTIFICATION',
+                  CAST(:payload AS JSONB),'CERTIFICATION',:payload,'SUBMITTED',0,CURRENT_TIMESTAMP)
+                """).param("publicId", certificationPublicId).param("accountId", employee.accountPublicId())
+                .param("payload", certificationPayload).update();
 
-        var legacy = service.mine(employee.accountPublicId()).stream()
-                .filter(item -> item.publicId().equals(publicId)).findFirst().orElseThrow();
-        assertThat(legacy.type()).isEqualTo("SKILL");
-        assertThat(legacy.description()).isEqualTo("旧クラウド技術の申請");
+        var legacyRequests = service.mine(employee.accountPublicId());
+        var skill = legacyRequests.stream()
+                .filter(item -> item.publicId().equals(skillPublicId)).findFirst().orElseThrow();
+        var certification = legacyRequests.stream()
+                .filter(item -> item.publicId().equals(certificationPublicId)).findFirst().orElseThrow();
+        assertThat(skill.type()).isEqualTo("スキル");
+        assertThat(skill.description()).isEqualTo("旧クラウド技術");
+        assertThat(certification.type()).isEqualTo("資格");
+        assertThat(certification.description()).isEqualTo("旧クラウド資格");
 
         var approved = service.approve(administrator.accountPublicId(), Set.of("ADMIN"),
-                publicId, legacy.version(), traceId(9));
+                skillPublicId, skill.version(), traceId(9));
         assertThat(approved.createdMasterPublicId()).isNotBlank();
         assertThat(jdbc.sql("SELECT COUNT(*) FROM skill_masters WHERE code='LEGACY_CLOUD_TASK6'")
                 .query(Integer.class).single()).isOne();
+        assertThat(jdbc.sql("""
+                SELECT request_description FROM master_addition_requests WHERE public_id=:publicId
+                """).param("publicId", skillPublicId).query(String.class).single()).isEqualTo(skillPayload);
     }
 
     @Test

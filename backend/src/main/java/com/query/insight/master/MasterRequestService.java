@@ -213,7 +213,8 @@ public class MasterRequestService {
 
     private JdbcClient.StatementSpec rows(String suffix) {
         return jdbc.sql("""
-                SELECT m.public_id,m.request_type,m.request_description,m.status,m.version,m.return_reason,
+                SELECT m.public_id,m.request_type,m.request_description,m.master_type,
+                  CAST(m.proposed_payload_json AS VARCHAR) payload,m.status,m.version,m.return_reason,
                   m.requested_at,m.decided_at,m.created_master_public_id,
                   CONCAT(e.last_name,' ',e.first_name) requester_name
                 FROM master_addition_requests m
@@ -224,8 +225,13 @@ public class MasterRequestService {
 
     private Row map(java.sql.ResultSet rs, int ignored) throws java.sql.SQLException {
         Timestamp decided = rs.getTimestamp("decided_at");
-        return new Row(rs.getString("public_id").trim(), rs.getString("request_type"),
-                rs.getString("request_description"), Status.valueOf(rs.getString("status")), rs.getLong("version"),
+        String legacyType = rs.getString("master_type");
+        JsonNode legacyPayload = parseForDisplay(rs.getString("payload"));
+        String displayType = legacyType == null ? rs.getString("request_type") : legacyTypeLabel(legacyType);
+        String displayDescription = legacyType == null ? rs.getString("request_description")
+                : legacyDescription(legacyPayload);
+        return new Row(rs.getString("public_id").trim(), displayType,
+                displayDescription, Status.valueOf(rs.getString("status")), rs.getLong("version"),
                 rs.getString("return_reason"), rs.getTimestamp("requested_at").toInstant(),
                 decided == null ? null : decided.toInstant(), trim(rs.getString("created_master_public_id")),
                 rs.getString("requester_name"));
@@ -289,6 +295,37 @@ public class MasterRequestService {
 
     private String text(JsonNode payload, String field) {
         return payload.path(field).asText();
+    }
+
+    private JsonNode parseForDisplay(String value) {
+        if (value == null) return null;
+        try {
+            JsonNode parsed = objectMapper.readTree(value);
+            return parsed.isTextual() ? objectMapper.readTree(parsed.asText()) : parsed;
+        } catch (JacksonException exception) {
+            return null;
+        }
+    }
+
+    private String legacyTypeLabel(String value) {
+        return switch (value) {
+            case "SKILL" -> "スキル";
+            case "CERTIFICATION" -> "資格";
+            default -> "旧形式の申請";
+        };
+    }
+
+    private String legacyDescription(JsonNode payload) {
+        String name = displayText(payload, "name");
+        if (name != null) return name;
+        String description = displayText(payload, "description");
+        return description == null ? "旧形式の申請内容" : description;
+    }
+
+    private String displayText(JsonNode payload, String field) {
+        if (payload == null || !payload.path(field).isTextual()) return null;
+        String value = payload.path(field).asText().trim();
+        return value.isBlank() ? null : value;
     }
 
     private String required(String value, String label, int max) {
