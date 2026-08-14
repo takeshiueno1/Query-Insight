@@ -10,9 +10,9 @@ type NavItem = { to: string; label: string; icon: string; role?: Role; scope?: D
 const nav: NavItem[] = [
   { to: '/', label: 'ダッシュボード', icon: '⌂' },
   { to: '/employees', label: '社員検索', icon: '⌕', role: 'OFFICER' },
-  { to: '/skills/edit', label: 'スキル', icon: '◇' },
-  { to: '/careers/edit', label: '業務経歴', icon: '▱' },
-  { to: '/certifications/edit', label: '資格', icon: '□' },
+  { to: '/skills', label: 'スキル', icon: '◇' },
+  { to: '/careers', label: '業務経歴', icon: '▱' },
+  { to: '/certifications', label: '資格', icon: '□' },
   { to: '/evaluations/self', label: '上長評価', icon: '✓' },
   { to: '/evaluations/manager', label: '上長評価入力', icon: '◎', role: 'OFFICER', scope: 'SUBORDINATES' },
   { to: '/approvals/talent', label: 'タレント承認', icon: '▣', role: 'OFFICER', scope: 'SUBORDINATES' },

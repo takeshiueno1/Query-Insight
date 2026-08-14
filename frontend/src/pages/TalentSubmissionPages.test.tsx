@@ -24,6 +24,21 @@ describe('TalentSubmissionFormPage', () => {
     expect(screen.getByLabelText(label)).toBeInTheDocument()
   })
 
+  it.each([
+    ['SKILL', 'スキルを登録', 'スキル'],
+    ['KNOWLEDGE', '得意分野を登録', '得意分野'],
+    ['CAREER', '業務経歴を登録', '案件名'],
+    ['CERTIFICATION', '資格を登録', '資格'],
+  ])('%sの見出しと入力名を自然な日本語で表示し内部名称を見せない', (type, heading, label) => {
+    renderType(type)
+
+    expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
+    expect(screen.getByLabelText(label)).toBeInTheDocument()
+    expect(screen.queryByText('専門知識')).not.toBeInTheDocument()
+    expect(screen.queryByText('TALENT APPLICATION')).not.toBeInTheDocument()
+    expect(screen.queryByText(type)).not.toBeInTheDocument()
+  })
+
   it('4件または5MB超の添付をAPI送信前に拒否する', () => {
     renderType('CAREER')
     const input = screen.getByLabelText('根拠資料（任意）') as HTMLInputElement
@@ -54,5 +69,7 @@ describe('TalentSubmissionFormPage', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('直属上長へ申請しました'))
     expect(apiMock).toHaveBeenCalledTimes(2)
     expect(apiMock.mock.calls.some(([url]) => String(url).includes('/attachments'))).toBe(false)
+    expect(screen.getByText(/状態: 申請中/)).toBeInTheDocument()
+    expect(screen.queryByText('SUBMITTED')).not.toBeInTheDocument()
   })
 })

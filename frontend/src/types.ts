@@ -201,6 +201,22 @@ export type TalentProfile = {
 
 export type TalentSubmissionStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED' | 'APPROVED' | 'SUPERSEDED'
 export type TalentSubmissionType = 'SKILL' | 'KNOWLEDGE' | 'CAREER' | 'CERTIFICATION'
+export const talentSubmissionTypeLabels: Record<TalentSubmissionType, string> = {
+  SKILL: 'スキル',
+  KNOWLEDGE: '得意分野',
+  CAREER: '業務経歴',
+  CERTIFICATION: '資格',
+}
+export const talentSubmissionStatusLabels: Record<TalentSubmissionStatus, string> = {
+  DRAFT: '下書き',
+  SUBMITTED: '申請中',
+  RETURNED: '差戻し',
+  APPROVED: '承認済み',
+  SUPERSEDED: '旧版',
+}
+export const talentVerificationStatusLabels: Record<string, string> = {
+  VERIFIED: '確認済み',
+}
 export type TalentMasterChoice = { publicId: string; code: string; name: string }
 export type TalentSubmission = {
   publicId: string; logicalPublicId: string; type: TalentSubmissionType; revisionNo: number

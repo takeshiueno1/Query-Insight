@@ -16,12 +16,14 @@ import { ExecutiveEvaluationDetailPage } from './pages/ExecutiveEvaluationDetail
 import { FeaturePage } from './pages/FeaturePage'
 import { LoginPage } from './pages/LoginPage'
 import { NotificationsPage } from './pages/NotificationsPage'
-import { TalentProfilePage } from './pages/TalentProfilePage'
 import { TalentSubmissionFormPage } from './pages/TalentSubmissionFormPage'
 import { TalentSubmissionHistoryPage } from './pages/TalentSubmissionHistoryPage'
 import { ManagerTalentApprovalsPage } from './pages/ManagerTalentApprovalsPage'
 import { ManagerTalentApprovalDetailPage } from './pages/ManagerTalentApprovalDetailPage'
 import { MasterRequestsPage } from './pages/MasterRequestsPage'
+import { SkillsPage } from './pages/SkillsPage'
+import { CareersPage } from './pages/CareersPage'
+import { CertificationsPage } from './pages/CertificationsPage'
 
 function ProtectedLayout() {
   const { user, loading } = useAuth()
@@ -38,9 +40,12 @@ export default function App() {
       <Route path="employees/new" element={<EmployeeFormPage />} />
       <Route path="employees/:publicId/edit" element={<EmployeeFormPage />} />
       <Route path="employees/:publicId" element={<EmployeeDetailPage />} />
-      <Route path="careers/edit" element={<TalentProfilePage />} />
-      <Route path="skills/edit" element={<TalentProfilePage />} />
-      <Route path="certifications/edit" element={<TalentProfilePage />} />
+      <Route path="skills" element={<SkillsPage />} />
+      <Route path="careers" element={<CareersPage />} />
+      <Route path="certifications" element={<CertificationsPage />} />
+      <Route path="skills/edit" element={<Navigate to="/skills" replace />} />
+      <Route path="careers/edit" element={<Navigate to="/careers" replace />} />
+      <Route path="certifications/edit" element={<Navigate to="/certifications" replace />} />
       <Route path="talent/new/:type" element={<TalentSubmissionFormPage />} />
       <Route path="talent/:logicalPublicId/history" element={<TalentSubmissionHistoryPage />} />
       <Route path="approvals/talent" element={<ManagerTalentApprovalsPage />} />

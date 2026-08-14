@@ -35,6 +35,9 @@ describe('権限別ナビゲーション', () => {
     for (const label of ['ダッシュボード', 'スキル', '業務経歴', '資格', '上長評価', '通知', 'マスタ申請']) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument()
     }
+    expect(screen.getByRole('link', { name: 'スキル' })).toHaveAttribute('href', '/skills')
+    expect(screen.getByRole('link', { name: '業務経歴' })).toHaveAttribute('href', '/careers')
+    expect(screen.getByRole('link', { name: '資格' })).toHaveAttribute('href', '/certifications')
     expect(screen.queryByRole('link', { name: '評価' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'AI分析' })).not.toBeInTheDocument()
   })
