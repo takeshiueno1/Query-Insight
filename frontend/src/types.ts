@@ -26,7 +26,7 @@ export const evaluationStatusLabels: Record<string, string> = {
   DRAFT: '下書き',
   SELF_IN_PROGRESS: '本人入力中',
   SELF_SUBMITTED: '上長評価待ち',
-  SELF_RETURNED: '本人へ差戻し',
+  SELF_RETURNED: '上長評価の再開待ち',
   MANAGER_IN_PROGRESS: '上長入力中',
   MANAGER_RETURNED: '最終承認者から差戻し',
   EXECUTIVE_REVIEW: '最終承認待ち',
@@ -158,7 +158,7 @@ export type ManagerEvaluation = {
 
 export type ExecutiveDashboard = {
   counts: { total: number; pending: number; finalized: number; overdue: number }
-  items: Array<{ publicId: string; employeeName: string; departmentName: string | null; status: string; version: number; finalScore: number | null; finalGrade: string | null; periodName: string; late: boolean }>
+  items: Array<{ publicId: string; employeeName: string; departmentName: string | null; status: string; version: number; finalScore: number | null; finalGrade: EvaluationRank | null; periodName: string; late: boolean }>
   distributions: Array<{ departmentName: string; grade: string; employeeCount: number }>
 }
 

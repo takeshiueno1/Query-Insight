@@ -11,14 +11,13 @@ public final class EvaluationWorkflow {
         if (action == Action.SELF_SUBMIT && (from == Status.SELF_IN_PROGRESS || from == Status.SELF_RETURNED)) {
             return Status.SELF_SUBMITTED;
         }
-        if (action == Action.MANAGER_SAVE && (from == Status.DRAFT || from == Status.SELF_SUBMITTED)) {
+        if (action == Action.MANAGER_SAVE
+                && (from == Status.DRAFT || from == Status.SELF_RETURNED || from == Status.SELF_SUBMITTED)) {
             return Status.MANAGER_IN_PROGRESS;
         }
         if (action == Action.MANAGER_SAVE && (from == Status.MANAGER_IN_PROGRESS || from == Status.MANAGER_RETURNED)) {
             return from;
         }
-        if (action == Action.MANAGER_RETURN_EMPLOYEE
-                && (from == Status.SELF_SUBMITTED || from == Status.MANAGER_IN_PROGRESS)) return Status.SELF_RETURNED;
         if (action == Action.MANAGER_SUBMIT
                 && (from == Status.MANAGER_IN_PROGRESS || from == Status.MANAGER_RETURNED)) return Status.EXECUTIVE_REVIEW;
         if (action == Action.EXECUTIVE_RETURN && from == Status.EXECUTIVE_REVIEW) return Status.MANAGER_RETURNED;

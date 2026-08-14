@@ -85,21 +85,11 @@ public class EvaluationWorkflowService {
     public ManagerEvaluationResponse returnToEmployee(String evaluatorEmployeePublicId, String actorAccountPublicId,
             String targetPublicId, long version, String reason, String traceId) {
         requireReason(reason);
-        long actorId = requireManager(actorAccountPublicId, evaluatorEmployeePublicId);
+        requireManager(actorAccountPublicId, evaluatorEmployeePublicId);
         Target target = managerTarget(evaluatorEmployeePublicId, targetPublicId);
         requireVersion(target, version);
-        Status next = EvaluationWorkflow.requireTransition(Status.parse(target.status()), Action.MANAGER_RETURN_EMPLOYEE);
-        if (target.managerEvaluationId() != null) {
-            jdbc.sql("UPDATE manager_evaluations SET status='SUPERSEDED' WHERE id=:id")
-                    .param("id", target.managerEvaluationId()).update();
-        }
-        long nextVersion = updateTarget(target, next, null, version, true, null, null);
-        recordEvent(target, target.managerEvaluationId(), actorId, "MANAGER_RETURN_EMPLOYEE", next, reason, null, traceId);
-        notifications.notifyEmployee(target.employeeId(), "EVALUATION_RETURNED", "自己評価が差し戻されました",
-                reason.strip(), "/evaluations/self", dedupe(target, "MANAGER_RETURN_EMPLOYEE", nextVersion));
-        audit.record(actorId, "EVALUATION_RETURN_EMPLOYEE", "EVALUATION_TARGET", target.publicId(), "SUCCESS",
-                "SUBORDINATES", traceId);
-        return managerResponse(managerTarget(evaluatorEmployeePublicId, targetPublicId), nextVersion);
+        throw new ApiException(HttpStatus.GONE, "SELF_EVALUATION_RETURN_RETIRED",
+                "本人への評価差戻しは廃止されました。上長評価を編集して最終承認者へ提出してください");
     }
 
     @Transactional
@@ -150,8 +140,8 @@ public class EvaluationWorkflowService {
                   SUM(CASE WHEN t.status='EXECUTIVE_REVIEW' THEN 1 ELSE 0 END) pending,
                   SUM(CASE WHEN t.status='FINALIZED' THEN 1 ELSE 0 END) finalized,
                   SUM(CASE
-                    WHEN t.status IN ('DRAFT','SELF_RETURNED') AND p.self_deadline<CURRENT_TIMESTAMP THEN 1
-                    WHEN t.status IN ('SELF_SUBMITTED','MANAGER_IN_PROGRESS','MANAGER_RETURNED')
+                    WHEN t.status='DRAFT' AND p.self_deadline<CURRENT_TIMESTAMP THEN 1
+                    WHEN t.status IN ('SELF_RETURNED','SELF_SUBMITTED','MANAGER_IN_PROGRESS','MANAGER_RETURNED')
                       AND p.manager_deadline<CURRENT_TIMESTAMP THEN 1 ELSE 0 END) overdue
                 FROM evaluation_targets t JOIN evaluation_periods p ON p.id=t.period_id
                 """).query((rs, row) -> new DashboardCounts(rs.getInt("total"), rs.getInt("pending"),
@@ -159,8 +149,8 @@ public class EvaluationWorkflowService {
         List<ExecutiveListItem> items = jdbc.sql("""
                 SELECT t.public_id,CONCAT(e.last_name,' ',e.first_name) employee_name,d.name department_name,
                   t.status,t.version,t.final_score,t.final_grade,p.name period_name,
-                  CASE WHEN t.status IN ('DRAFT','SELF_RETURNED') THEN p.self_deadline
-                    WHEN t.status IN ('SELF_SUBMITTED','MANAGER_IN_PROGRESS','MANAGER_RETURNED') THEN p.manager_deadline
+                  CASE WHEN t.status='DRAFT' THEN p.self_deadline
+                    WHEN t.status IN ('SELF_RETURNED','SELF_SUBMITTED','MANAGER_IN_PROGRESS','MANAGER_RETURNED') THEN p.manager_deadline
                     ELSE NULL END active_deadline
                 FROM evaluation_targets t JOIN employees e ON e.id=t.employee_id
                 LEFT JOIN departments d ON d.id=e.department_id JOIN evaluation_periods p ON p.id=t.period_id

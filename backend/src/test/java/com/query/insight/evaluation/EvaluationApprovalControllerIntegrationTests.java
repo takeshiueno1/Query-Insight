@@ -1,5 +1,6 @@
 package com.query.insight.evaluation;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -168,6 +169,28 @@ class EvaluationApprovalControllerIntegrationTests {
         mvc.perform(get("/api/v1/manager-evaluations/{id}", targetPublicId)
                 .with(officer("QI0002", "SUBORDINATES")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DirtiesContext(methodMode = DirtiesContext.MethodMode.AFTER_METHOD)
+    void managerReturnToEmployeeIsRetiredWithoutChangingTheTargetState() throws Exception {
+        String targetPublicId = targetPublicId("QI0015");
+        String managerEmployeeNo = managerEmployeeNo(targetPublicId);
+        jdbc.sql("UPDATE evaluation_targets SET status='SELF_SUBMITTED',current_manager_evaluation_id=NULL "
+                        + "WHERE public_id=:publicId")
+                .param("publicId", targetPublicId).update();
+        long version = targetVersion(targetPublicId);
+
+        mvc.perform(post("/api/v1/manager-evaluations/{id}/return", targetPublicId)
+                .with(officer(managerEmployeeNo, "SUBORDINATES"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(Map.of(
+                        "version", version, "reason", "本人の再入力を依頼します"))))
+                .andExpect(status().isGone())
+                .andExpect(jsonPath("$.code").value("SELF_EVALUATION_RETURN_RETIRED"));
+
+        assertThat(jdbc.sql("SELECT status FROM evaluation_targets WHERE public_id=:publicId")
+                .param("publicId", targetPublicId).query(String.class).single()).isEqualTo("SELF_SUBMITTED");
     }
 
     @Test

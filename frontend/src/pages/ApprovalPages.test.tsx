@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '../lib/api'
@@ -28,6 +28,12 @@ const managerEvaluation = {
     selfEvidence: `${displayName}の本人記録`, managerRank: (['S', 'A', 'B', 'C', 'D', 'F'] as const)[index],
     managerComment: `${displayName}の具体的な事実`,
   })),
+}
+
+const draftManagerEvaluation = {
+  ...managerEvaluation,
+  status: 'DRAFT',
+  grade: null,
 }
 
 const executiveEvaluation = {
@@ -112,8 +118,8 @@ describe('評価承認画面', () => {
     expect(await screen.findByRole('heading', { name: '次利用者の部下さんの上長評価' })).toBeInTheDocument()
   })
 
-  it('上長は6軸をSからFのradioで入力し評価基準を確認できる', async () => {
-    apiMock.mockResolvedValue(managerEvaluation)
+  it('DRAFTの上長は6軸・36個のrank選択肢を編集して保存できる', async () => {
+    apiMock.mockResolvedValue(draftManagerEvaluation)
     renderRoute(<ManagerEvaluationDetailPage />, '/evaluations/manager/:publicId', '/evaluations/manager/T1')
 
     expect(await screen.findByRole('heading', { name: '山田 太郎さんの上長評価' })).toBeInTheDocument()
@@ -127,11 +133,14 @@ describe('評価承認画面', () => {
     expect(screen.queryByText(/習熟度（1～5）/)).not.toBeInTheDocument()
     expect(screen.queryByText('85')).not.toBeInTheDocument()
     expect(screen.queryByText(/本人 4/)).not.toBeInTheDocument()
-    expect(screen.getByText('最終承認者から差戻し')).toBeInTheDocument()
+    expect(screen.getByText('下書き')).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('radio', { name: 'A' })[0])
+    fireEvent.click(screen.getByRole('button', { name: '下書き保存' }))
+    await waitFor(() => expect(apiMock.mock.calls.some(([path, init]) => path === '/api/v1/manager-evaluations/T1' && init?.method === 'PUT')).toBe(true))
   })
 
   it('上長の下書き保存はrankと現在versionをAPIへ送る', async () => {
-    apiMock.mockResolvedValue(managerEvaluation)
+    apiMock.mockResolvedValue(draftManagerEvaluation)
     renderRoute(<ManagerEvaluationDetailPage />, '/evaluations/manager/:publicId', '/evaluations/manager/T1')
     await screen.findByRole('heading', { name: '山田 太郎さんの上長評価' })
 
@@ -147,8 +156,8 @@ describe('評価承認画面', () => {
   })
 
   it('上長提出はrankを保存して返された最新versionで最終承認へ進める', async () => {
-    apiMock.mockResolvedValueOnce(managerEvaluation)
-      .mockResolvedValueOnce({ ...managerEvaluation, targetVersion: 5 })
+    apiMock.mockResolvedValueOnce(draftManagerEvaluation)
+      .mockResolvedValueOnce({ ...draftManagerEvaluation, status: 'MANAGER_IN_PROGRESS', targetVersion: 5 })
       .mockResolvedValue({ ...managerEvaluation, status: 'EXECUTIVE_REVIEW', targetVersion: 6 })
     renderRoute(<ManagerEvaluationDetailPage />, '/evaluations/manager/:publicId', '/evaluations/manager/T1')
     await screen.findByRole('heading', { name: '山田 太郎さんの上長評価' })
@@ -164,16 +173,57 @@ describe('評価承認画面', () => {
     expect(JSON.parse(String(submitCall[1].body))).toEqual({ version: 5 })
   })
 
-  it('本人への差戻しは理由と現在versionを送る', async () => {
+  it('MANAGER_RETURNEDは上長が再編集・再提出し、本人差戻しUIを表示しない', async () => {
     apiMock.mockResolvedValue(managerEvaluation)
     renderRoute(<ManagerEvaluationDetailPage />, '/evaluations/manager/:publicId', '/evaluations/manager/T1')
     await screen.findByRole('heading', { name: '山田 太郎さんの上長評価' })
-    fireEvent.change(screen.getByLabelText('本人への差戻し理由'), { target: { value: '根拠を追加してください。' } })
-    fireEvent.click(screen.getByRole('button', { name: '本人へ差し戻す' }))
+    expect(screen.queryByLabelText('本人への差戻し理由')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '本人へ差し戻す' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '下書き保存' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '最終承認者へ提出' })).toBeEnabled()
+  })
 
-    await waitFor(() => expect(apiMock.mock.calls.some(([path]) => path === '/api/v1/manager-evaluations/T1/return')).toBe(true))
-    const call = apiMock.mock.calls.find(([path]) => path === '/api/v1/manager-evaluations/T1/return') as [string, RequestInit]
-    expect(JSON.parse(String(call[1].body))).toEqual({ version: 4, reason: '根拠を追加してください。' })
+  it('提出前保存後のPOST失敗で最新versionを保持し、再試行を古いversionで送らない', async () => {
+    apiMock.mockResolvedValueOnce(draftManagerEvaluation)
+      .mockResolvedValueOnce({ ...managerEvaluation, status: 'MANAGER_IN_PROGRESS', targetVersion: 5 })
+      .mockRejectedValueOnce(new Error('送信に失敗しました'))
+      .mockResolvedValueOnce({ ...managerEvaluation, status: 'MANAGER_IN_PROGRESS', targetVersion: 6 })
+      .mockResolvedValueOnce({ ...managerEvaluation, status: 'EXECUTIVE_REVIEW', targetVersion: 7 })
+    renderRoute(<ManagerEvaluationDetailPage />, '/evaluations/manager/:publicId', '/evaluations/manager/T1')
+    await screen.findByRole('heading', { name: '山田 太郎さんの上長評価' })
+
+    fireEvent.click(screen.getByRole('button', { name: '最終承認者へ提出' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('処理を完了できませんでした')
+    fireEvent.click(screen.getByRole('button', { name: '最終承認者へ提出' }))
+
+    await screen.findByText('最終承認者へ提出しました。')
+    const putVersions = apiMock.mock.calls
+      .filter(([path, init]) => path === '/api/v1/manager-evaluations/T1' && init?.method === 'PUT')
+      .map(([, init]) => JSON.parse(String(init?.body)).version)
+    const submitVersions = apiMock.mock.calls
+      .filter(([path]) => path === '/api/v1/manager-evaluations/T1/submit')
+      .map(([, init]) => JSON.parse(String(init?.body)).version)
+    expect(putVersions).toEqual([4, 5])
+    expect(submitVersions).toEqual([5, 6])
+  })
+
+  it('提出処理中の二重操作でPUTとPOSTを重複送信しない', async () => {
+    let resolveSave!: (value: typeof managerEvaluation) => void
+    const savePending = new Promise<typeof managerEvaluation>((resolve) => { resolveSave = resolve })
+    apiMock.mockResolvedValueOnce(draftManagerEvaluation)
+      .mockImplementationOnce(() => savePending)
+      .mockResolvedValueOnce({ ...managerEvaluation, status: 'EXECUTIVE_REVIEW', targetVersion: 6 })
+    renderRoute(<ManagerEvaluationDetailPage />, '/evaluations/manager/:publicId', '/evaluations/manager/T1')
+    await screen.findByRole('heading', { name: '山田 太郎さんの上長評価' })
+
+    const submit = screen.getByRole('button', { name: '最終承認者へ提出' })
+    fireEvent.click(submit)
+    await waitFor(() => expect(apiMock.mock.calls.filter(([path, init]) => path === '/api/v1/manager-evaluations/T1' && init?.method === 'PUT')).toHaveLength(1))
+    fireEvent.click(submit)
+    expect(apiMock.mock.calls.filter(([path, init]) => path === '/api/v1/manager-evaluations/T1' && init?.method === 'PUT')).toHaveLength(1)
+
+    await act(async () => resolveSave({ ...managerEvaluation, status: 'MANAGER_IN_PROGRESS', targetVersion: 5 }))
+    await waitFor(() => expect(apiMock.mock.calls.filter(([path]) => path === '/api/v1/manager-evaluations/T1/submit')).toHaveLength(1))
   })
 
   it('409競合の詳細を表示し古いversionで成功扱いにしない', async () => {
@@ -237,6 +287,42 @@ describe('評価承認画面', () => {
     renderPage(<ExecutiveDashboardPage />)
     expect(await screen.findByText('2')).toBeInTheDocument()
     expect(screen.getByText('最終承認待ち', { selector: 'span' })).toBeInTheDocument()
+  })
+
+  it('経営者一覧は6rankで絞り込み、日本語状態と総合ランクだけを表示する', async () => {
+    apiMock.mockResolvedValue({
+      counts: { total: 1, pending: 1, finalized: 0, overdue: 0 },
+      items: [{ publicId: 'T1', employeeName: '山田 太郎', departmentName: '開発', status: 'EXECUTIVE_REVIEW', version: 4, finalScore: 85, finalGrade: 'F', periodName: '2026年度', late: false }],
+      distributions: [],
+    })
+    renderPage(<ExecutiveDashboardPage />)
+
+    expect(await screen.findByText('山田 太郎')).toBeInTheDocument()
+    expect(screen.getByText('最終承認待ち', { selector: 'span.status' })).toBeInTheDocument()
+    expect(screen.queryByText('EXECUTIVE_REVIEW')).not.toBeInTheDocument()
+    expect(screen.queryByText('FINAL REVIEW')).not.toBeInTheDocument()
+    expect(screen.queryByText('85')).not.toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '総合ランク' })).toBeInTheDocument()
+    const gradeFilter = screen.getByRole('combobox', { name: '総合ランク' })
+    for (const rank of ['S', 'A', 'B', 'C', 'D', 'F']) {
+      expect(gradeFilter).toContainElement(screen.getByRole('option', { name: rank }))
+    }
+  })
+
+  it('経営者一覧は読込中、取得失敗と再試行、空一覧を別のARIA状態で表示する', async () => {
+    let rejectLoad!: (reason: Error) => void
+    const loading = new Promise((_, reject) => { rejectLoad = reject })
+    apiMock.mockImplementationOnce(() => loading).mockResolvedValueOnce({
+      counts: { total: 0, pending: 0, finalized: 0, overdue: 0 }, items: [], distributions: [],
+    })
+    renderPage(<ExecutiveDashboardPage />)
+
+    expect(screen.getByRole('status', { name: '全社評価を読込中' })).toHaveAttribute('aria-busy', 'true')
+    await act(async () => rejectLoad(new Error('network')))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('全社評価を取得できませんでした')
+    fireEvent.click(screen.getByRole('button', { name: '再読み込み' }))
+    expect(await screen.findByRole('status', { name: '全社評価の状態' })).toHaveTextContent('評価対象はありません')
   })
 
   it('全社役職者切替時に前利用者の全社一覧をキャッシュ表示しない', async () => {

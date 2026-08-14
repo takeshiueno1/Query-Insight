@@ -125,6 +125,25 @@ class EvaluationWorkflowServiceIntegrationTests {
     }
 
     @Test
+    void assignedManagerCanRecoverLegacySelfReturnedTargetAndSubmitIt() {
+        Target target = target("QI0003");
+        Actor manager = managerActor(target.publicId());
+        jdbc.sql("UPDATE evaluation_targets SET status='SELF_RETURNED',current_manager_evaluation_id=NULL "
+                        + "WHERE public_id=:publicId")
+                .param("publicId", target.publicId()).update();
+
+        var saved = service.saveManager(manager.employeePublicId(), manager.accountPublicId(), target.publicId(),
+                new EvaluationWorkflowService.ManagerSaveRequest(target.version(), rankDetails(true),
+                        "旧差戻し対象を上長評価として再開します"),
+                "TRACE-RECOVER-SELF-RET");
+        var submitted = service.submitManager(manager.employeePublicId(), manager.accountPublicId(),
+                target.publicId(), saved.targetVersion(), "TRACE-SUBMIT-RECOVERED");
+
+        assertThat(saved.status()).isEqualTo("MANAGER_IN_PROGRESS");
+        assertThat(submitted.status()).isEqualTo("EXECUTIVE_REVIEW");
+    }
+
+    @Test
     void returnedEmployeeSubmissionCreatesWorkflowEventAuditAndManagerNotification() {
         Actor employee = actor("ueno");
         Target target = target("QITEST");

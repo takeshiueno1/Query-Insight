@@ -17,7 +17,6 @@ export function ManagerEvaluationDetailPage() {
   const query = useQuery({ queryKey: ['manager-evaluation', user?.accountPublicId, publicId], queryFn: () => api<ManagerEvaluation>(`/api/v1/manager-evaluations/${publicId}`), enabled: Boolean(user?.accountPublicId && publicId) })
   const [draft, setDraft] = useState<Draft>({})
   const [summary, setSummary] = useState('')
-  const [reason, setReason] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   useEffect(() => {
     if (!query.data) return
@@ -29,7 +28,7 @@ export function ManagerEvaluationDetailPage() {
   }, [query.data])
 
   const mutation = useMutation({
-    mutationFn: async (action: 'save' | 'submit' | 'return') => {
+    mutationFn: async (action: 'save' | 'submit') => {
       if (!query.data) throw new Error('評価がありません')
       const saveBody = {
         version: query.data.targetVersion,
@@ -40,16 +39,22 @@ export function ManagerEvaluationDetailPage() {
           comment: draft[detail.axisCode]?.comment ?? '',
         })),
       }
-      if (action === 'save') return api<ManagerEvaluation>(`/api/v1/manager-evaluations/${publicId}`, { method: 'PUT', body: JSON.stringify(saveBody) })
+      if (action === 'save') {
+        const saved = await api<ManagerEvaluation>(`/api/v1/manager-evaluations/${publicId}`, { method: 'PUT', body: JSON.stringify(saveBody) })
+        client.setQueryData(['manager-evaluation', user?.accountPublicId, publicId], saved)
+        return saved
+      }
       if (action === 'submit') {
         const saved = await api<ManagerEvaluation>(`/api/v1/manager-evaluations/${publicId}`, { method: 'PUT', body: JSON.stringify(saveBody) })
-        return api<ManagerEvaluation>(`/api/v1/manager-evaluations/${publicId}/submit`, { method: 'POST', body: JSON.stringify({ version: saved.targetVersion }) })
+        client.setQueryData(['manager-evaluation', user?.accountPublicId, publicId], saved)
+        const submitted = await api<ManagerEvaluation>(`/api/v1/manager-evaluations/${publicId}/submit`, { method: 'POST', body: JSON.stringify({ version: saved.targetVersion }) })
+        client.setQueryData(['manager-evaluation', user?.accountPublicId, publicId], submitted)
+        return submitted
       }
-      return api<ManagerEvaluation>(`/api/v1/manager-evaluations/${publicId}/return`, { method: 'POST', body: JSON.stringify({ version: query.data.targetVersion, reason }) })
+      throw new Error('未対応の操作です')
     },
     onSuccess: async (_, action) => {
-      setMessage(action === 'save' ? '上長評価を保存しました。' : action === 'submit' ? '最終承認者へ提出しました。' : '本人へ差し戻しました。')
-      await client.invalidateQueries({ queryKey: ['manager-evaluation', user?.accountPublicId, publicId] })
+      setMessage(action === 'save' ? '上長評価を保存しました。' : '最終承認者へ提出しました。')
       await client.invalidateQueries({ queryKey: ['manager-evaluations', user?.accountPublicId] })
     },
     onError: (error) => setMessage(error instanceof ApiError ? error.problem.detail : '処理を完了できませんでした'),
@@ -60,7 +65,7 @@ export function ManagerEvaluationDetailPage() {
   if (!query.data) return <div className="state-card" role="status">評価が見つかりません。</div>
 
   const evaluation = query.data
-  const editable = ['SELF_SUBMITTED', 'MANAGER_IN_PROGRESS', 'MANAGER_RETURNED'].includes(evaluation.status)
+  const editable = ['DRAFT', 'SELF_RETURNED', 'SELF_SUBMITTED', 'MANAGER_IN_PROGRESS', 'MANAGER_RETURNED'].includes(evaluation.status)
   const allRanksSelected = evaluation.details.every((detail) => draft[detail.axisCode]?.rank)
   const saveReady = editable && allRanksSelected
   const submitReady = saveReady && summary.trim() !== '' && evaluation.details.every((detail) => draft[detail.axisCode]?.comment.trim())
@@ -74,8 +79,6 @@ export function ManagerEvaluationDetailPage() {
       <section className="card sticky-chart">
         <h2>判断と操作</h2>
         <div className="manager-overall-rank"><span>総合ランク</span>{evaluation.grade ? <RankBadge rank={evaluation.grade} label="上長評価の総合ランク" /> : <strong>保存・提出後に算出</strong>}</div>
-        <label className="reason-box">本人への差戻し理由<textarea maxLength={1000} disabled={!editable} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
-        <button className="secondary-button full" disabled={!editable || !reason.trim() || mutation.isPending} onClick={() => mutation.mutate('return')}>本人へ差し戻す</button>
         <Link className="text-link back-link" to="/evaluations/manager">← 一覧へ戻る</Link>
       </section>
       <section className="card">
