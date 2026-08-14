@@ -155,6 +155,7 @@ public class EvaluationWorkflowService {
                 FROM evaluation_targets t JOIN employees e ON e.id=t.employee_id
                 LEFT JOIN departments d ON d.id=e.department_id JOIN evaluation_periods p ON p.id=t.period_id
                 LEFT JOIN manager_evaluations m ON m.id=t.current_manager_evaluation_id
+                  AND m.target_id=t.id AND m.status IN ('SUBMITTED','FINALIZED')
                 ORDER BY CASE WHEN t.status='EXECUTIVE_REVIEW' THEN 0 ELSE 1 END,p.manager_deadline,t.public_id
                 """).query((rs, row) -> new ExecutiveListItem(rs.getString("public_id"), rs.getString("employee_name"),
                         rs.getString("department_name"), rs.getString("status"), rs.getLong("version"),
