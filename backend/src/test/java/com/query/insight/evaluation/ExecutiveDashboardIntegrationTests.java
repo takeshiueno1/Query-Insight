@@ -34,10 +34,8 @@ class ExecutiveDashboardIntegrationTests {
         assertThat(dashboard.items()).extracting(EvaluationWorkflowService.ExecutiveListItem::status)
                 .contains("EXECUTIVE_REVIEW", "FINALIZED", "MANAGER_RETURNED");
         assertThat(dashboard.items()).filteredOn(item -> "FINALIZED".equals(item.status()))
-                .extracting(EvaluationWorkflowService.ExecutiveListItem::finalScore)
-                .allSatisfy(score -> assertThat(score).isBetween(
-                        new java.math.BigDecimal("0.00"), new java.math.BigDecimal("100.00")))
-                .allSatisfy(score -> assertThat(score).isGreaterThan(new java.math.BigDecimal("5.00")));
+                .extracting(EvaluationWorkflowService.ExecutiveListItem::finalGrade)
+                .allSatisfy(grade -> assertThat(grade).isIn("S", "A", "B", "C", "D", "F"));
     }
 
     @Test
@@ -65,7 +63,6 @@ class ExecutiveDashboardIntegrationTests {
         assertThat(item.status()).isEqualTo("EXECUTIVE_REVIEW");
         assertThat(item.managerGrade()).isEqualTo("C");
         assertThat(item.finalGrade()).isNull();
-        assertThat(item.finalScore()).isNull();
     }
 
     @Test

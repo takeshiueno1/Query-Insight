@@ -38,6 +38,12 @@ public class TalentAttachmentController {
         return service.upload(jwt.getClaimAsString("employeePublicId"), submissionPublicId, version, file);
     }
 
+    @GetMapping("/api/v1/talent-submissions/{submissionPublicId}/attachments")
+    List<TalentAttachmentService.Summary> listOwn(@AuthenticationPrincipal Jwt jwt,
+            @PathVariable @Pattern(regexp = PUBLIC_ID) String submissionPublicId) {
+        return service.listOwn(jwt.getClaimAsString("employeePublicId"), submissionPublicId);
+    }
+
     @GetMapping("/api/v1/talent-attachments/{attachmentPublicId}")
     ResponseEntity<byte[]> download(@AuthenticationPrincipal Jwt jwt,
             @PathVariable @Pattern(regexp = PUBLIC_ID) String attachmentPublicId) {

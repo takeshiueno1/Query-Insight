@@ -22,10 +22,10 @@ const officer: User = { accountPublicId: 'ACCOUNT-1', employeePublicId: 'EMPLOYE
 const managerEvaluation = {
   publicId: 'T1', employeePublicId: 'E1', employeeName: '山田 太郎', departmentName: '開発',
   periodName: '2026年度', status: 'MANAGER_RETURNED', targetVersion: 4, late: true,
-  summary: '期間中の具体的な成果を確認しました。', score: 85, grade: 'A',
+  summary: '期間中の具体的な成果を確認しました。', grade: 'A',
   details: axes.map((displayName, index) => ({
-    axisCode: `AXIS_${index}`, displayName, description: `${displayName}の説明`, selfLevel: 4,
-    selfEvidence: `${displayName}の本人記録`, managerRank: (['S', 'A', 'B', 'C', 'D', 'F'] as const)[index],
+    axisCode: `AXIS_${index}`, displayName, description: `${displayName}の説明`,
+    managerRank: (['S', 'A', 'B', 'C', 'D', 'F'] as const)[index],
     managerComment: `${displayName}の具体的な事実`,
   })),
 }
@@ -39,7 +39,6 @@ const draftManagerEvaluation = {
 const executiveEvaluation = {
   ...managerEvaluation,
   status: 'EXECUTIVE_REVIEW',
-  finalScore: null,
   finalGrade: null,
   events: [{
     action: 'MANAGER_SUBMIT', fromStatus: 'MANAGER_IN_PROGRESS', toStatus: 'EXECUTIVE_REVIEW',
@@ -295,7 +294,7 @@ describe('評価承認画面', () => {
   it('経営者一覧は6rankで絞り込み、日本語状態と総合ランクだけを表示する', async () => {
     apiMock.mockResolvedValue({
       counts: { total: 1, pending: 1, finalized: 0, overdue: 0 },
-      items: [{ publicId: 'T1', employeeName: '山田 太郎', departmentName: '開発', status: 'EXECUTIVE_REVIEW', version: 4, finalScore: null, finalGrade: null, managerGrade: 'F', periodName: '2026年度', late: false }],
+      items: [{ publicId: 'T1', employeeName: '山田 太郎', departmentName: '開発', status: 'EXECUTIVE_REVIEW', version: 4, finalGrade: null, managerGrade: 'F', periodName: '2026年度', late: false }],
       distributions: [],
     })
     renderPage(<ExecutiveDashboardPage />)
@@ -335,7 +334,7 @@ describe('評価承認画面', () => {
   it('全社役職者切替時に前利用者の全社一覧をキャッシュ表示しない', async () => {
     const dashboard = (employeeName: string) => ({
       counts: { total: 1, pending: 1, finalized: 0, overdue: 0 },
-      items: [{ publicId: 'T1', employeeName, departmentName: '開発', status: 'EXECUTIVE_REVIEW', version: 4, finalScore: null, finalGrade: null, managerGrade: 'C', periodName: '2026年度', late: false }],
+      items: [{ publicId: 'T1', employeeName, departmentName: '開発', status: 'EXECUTIVE_REVIEW', version: 4, finalGrade: null, managerGrade: 'C', periodName: '2026年度', late: false }],
       distributions: [],
     })
     apiMock.mockResolvedValueOnce(dashboard('前利用者の全社対象')).mockResolvedValue(dashboard('次利用者の全社対象'))

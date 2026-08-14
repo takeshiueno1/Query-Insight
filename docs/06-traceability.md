@@ -48,7 +48,7 @@
 | 監査 | `GET /api/v1/audit-logs` | `ADMIN`向け。traceIdを含む |
 | 分析 | `POST /api/v1/ai-analyses` | 承認済み情報と公開済み評価だけを匿名化。Ollama成功時AI、利用不能時PROTOTYPEを保存・監査 |
 | タレントプロフィール・申請 | `GET /api/v1/employees/{publicId}/talent-profile`, `/api/v1/talent-submissions/**`, `/api/v1/manager/talent-submissions/**` | 申請、直属上長承認、差戻し、再申請、版履歴、正式反映、自己ステータス再計算を実装 |
-| 添付 | `POST /api/v1/talent-submissions/{publicId}/attachments`, `GET/DELETE /api/v1/talent-attachments/{publicId}` | owner/scope、形式・サイズ・件数、PENDING/CLEAN/INFECTED/ERROR、再検査、CLEANのみ取得を実装 |
+| 添付 | `POST/GET /api/v1/talent-submissions/{publicId}/attachments`, `GET/DELETE /api/v1/talent-attachments/{publicId}` | owner/scope、形式・サイズ・件数、PENDING/CLEAN/INFECTED/ERROR、再検査を実装。本人は編集中申請の既存添付と検査状態を確認・削除でき、CLEANのみ内容取得可能 |
 | タレント選択肢 | `GET /api/v1/talent-masters/{type}` | ACTIVEなスキル・得意分野・資格を種類別申請フォームへ提供 |
 | マスタ追加申請 | `POST /api/v1/master-requests`, `GET /me`, `/api/v1/admin/master-requests/**` | 新形式は種類・説明だけを保存し、承認してもマスタ非生成。旧形式だけ互換生成を維持 |
 | 組織・アカウント・マスタ | 詳細設計書の管理API | 未実装 |
@@ -81,13 +81,14 @@
 - `frontend/src/pages/EvaluationPage.tsx` は旧本人入力文言を含むが、`App.tsx`からはmountされず、`/evaluations/self`は本人向け確定結果へ転送される。
 - `frontend/src/pages/TalentProfilePage.tsx` は旧統合プロフィール表記を含むが、現行の一般メニューは`/skills`、`/careers`、`/certifications`を使用する。
 - `backend/src/main/java/com/query/insight/config/LocalDataInitializer.java`の旧本人評価通知seedは削除した。`LocalRealisticDataInitializer.java`は一般本人の確定結果、直属上長の最終承認差戻し、全社役職者の最終承認対象を、各recipientのrole/scopeに合うroute付きでseedし、旧2件のdedupe keyを局所削除する。
-- `backend/src/main/java/com/query/insight/config/LocalRealisticDataInitializer.java` は旧本人評価のlevel/evidenceを互換データとして生成する。APIの上長・経営詳細には旧fieldが残るが、現行の`ManagerEvaluationDetailPage`と`ExecutiveEvaluationDetailPage`は描画しない。
+- `backend/src/main/java/com/query/insight/config/LocalRealisticDataInitializer.java` は旧本人評価のlevel/evidenceを互換データとして生成するが、現行の上長・経営向け公開APIはscore/finalScore/selfLevel/selfEvidenceを返さない。
 
 未mountの`EvaluationPage.tsx`と`TalentProfilePage.tsx`は互換コードとして残す。現行routeから到達不能であり、削除の影響範囲を本修正だけでは確定できないため削除していない。
 
 ## 実動作と残る確認gate
 
 - 2026-08-14の実ブラウザ追加確認で発見した在籍状態、タレント分類、監査ログの内部コード表示を日本語化した。Frontend 14 files・134件、lint、buildが成功した。対象テストは35件が成功し、配布物の実ブラウザでも`ACTIVE`、`ENGINEERING`、`AUTH_LOGIN`等が表示されないことを確認した。
+- 2026-08-14の最終レビュー修正では、最終承認時の自己ステータスsnapshot再計算、評価APIの内部数値・旧本人値非公開、AI匿名化のUnicode大小文字対応、編集中申請の既存添付一覧・削除、重複・同時承認の409化、利用者別申請・添付cache分離を実装した。focused Backend 52件・申請関連Frontend 50件、全Backend 197件・全Frontend 137件、lint、build、依存監査が成功した。PostgreSQL実DBの並行ロック挙動はDocker環境障害のため未確認で、H2では一方承認・他方409・副作用各1件を確認した。
 - 2026-08-14の製品修正round 2では、Frontend 14 files・130件、lint、buildが成功した。関連4 files・63件は同一commandを3回連続実行して成功した。
 - 2026-08-14の製品修正round 1では、Backend 194件、Frontend 14 files・124件、Frontend lint・buildが成功した。追加したfocused検証はBackend 7件、Frontend 52件が成功した。
 - 2026-08-14のTask 11静的検証は、Backend 190件、Frontend 13 files・108件、lint、build、`npm audit --audit-level=moderate`（脆弱性0件）、Compose config、diff check、差分秘密情報scanが成功した。

@@ -10,10 +10,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.query.insight.common.ApiException;
 import com.query.insight.talent.TalentSubmission.Type;
+import com.zaxxer.hikari.HikariDataSource;
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,6 +29,8 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -35,6 +44,10 @@ class ManagerTalentSubmissionIntegrationTests {
     private JdbcClient jdbc;
     @Autowired
     private MockMvc mvc;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+    @Autowired
+    private DataSource dataSource;
 
     @Test
     void currentManagerCanApproveAndOfficialProfileChangesAtomically() {
@@ -208,7 +221,10 @@ class ManagerTalentSubmissionIntegrationTests {
 
         assertThatThrownBy(() -> service.approve(manager.employeePublicId(), manager.accountPublicId(),
                 duplicate.publicId(), submitted.version(), traceId(19)))
-                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+                .isInstanceOfSatisfying(ApiException.class, error -> {
+                    assertThat(error.status().value()).isEqualTo(409);
+                    assertThat(error.code()).isEqualTo("TALENT_OFFICIAL_CONFLICT");
+                });
 
         assertThat(repository.findByPublicId(duplicate.publicId()).orElseThrow().status())
                 .isEqualTo(TalentSubmission.Status.SUBMITTED);
@@ -219,6 +235,80 @@ class ManagerTalentSubmissionIntegrationTests {
                 .query(Integer.class).single()).isZero();
         assertThat(jdbc.sql("SELECT COUNT(*) FROM audit_logs WHERE action='TALENT_APPROVE' AND target_public_id=:id")
                 .param("id", duplicate.publicId()).query(Integer.class).single()).isZero();
+    }
+
+    @Test
+    void concurrentSameSubmissionApprovalProducesOneSuccessAndOneBusinessConflict() throws Exception {
+        Actor employee = actor("QITEST");
+        Actor manager = actor("QI0002");
+        String masterId = unassignedSkillMaster();
+        var draft = service.create(employee.employeePublicId(), Type.SKILL,
+                new TalentPayloads.SkillPayload(masterId, 4, BigDecimal.ONE,
+                        LocalDate.of(2026, 8, 1), "同時承認確認"), employee.accountPublicId(), traceId(20));
+        var submitted = service.submit(employee.employeePublicId(), employee.accountPublicId(),
+                draft.publicId(), draft.version(), traceId(21));
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        List<Future<Object>> futures = new ArrayList<>();
+        try {
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                jdbc.sql("SELECT id FROM employees WHERE id=:employeeId FOR UPDATE")
+                        .param("employeeId", draft.employeeId()).query(Long.class).single();
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    int trace = 22 + attempt;
+                    futures.add(executor.submit(() -> {
+                        ready.countDown();
+                        start.await();
+                        try {
+                            return service.approve(manager.employeePublicId(), manager.accountPublicId(),
+                                    draft.publicId(), submitted.version(), traceId(trace));
+                        } catch (RuntimeException exception) {
+                            return exception;
+                        }
+                    }));
+                }
+                try {
+                    assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+                    start.countDown();
+                    awaitActiveDatabaseConnections(3);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(exception);
+                }
+            });
+
+            List<Object> results = new ArrayList<>();
+            for (Future<Object> future : futures) results.add(future.get(15, TimeUnit.SECONDS));
+            assertThat(results).filteredOn(TalentSubmissionRepository.Row.class::isInstance).hasSize(1);
+            assertThat(results).filteredOn(ApiException.class::isInstance).singleElement()
+                    .satisfies(result -> assertThat(((ApiException) result).status().value()).isEqualTo(409));
+            assertThat(jdbc.sql("SELECT COUNT(*) FROM employee_skills es JOIN skill_masters sm ON sm.id=es.skill_id "
+                            + "WHERE es.employee_id=:employeeId AND sm.public_id=:masterId")
+                    .param("employeeId", draft.employeeId()).param("masterId", masterId)
+                    .query(Integer.class).single()).isEqualTo(1);
+            assertThat(jdbc.sql("SELECT COUNT(*) FROM talent_submission_events WHERE submission_id=:id AND action='APPROVE'")
+                    .param("id", draft.id()).query(Integer.class).single()).isEqualTo(1);
+            assertThat(jdbc.sql("SELECT COUNT(*) FROM notifications WHERE dedupe_key=:key")
+                    .param("key", "talent:" + draft.publicId() + ":approved")
+                    .query(Integer.class).single()).isEqualTo(1);
+            assertThat(jdbc.sql("SELECT COUNT(*) FROM audit_logs WHERE action='TALENT_APPROVE' AND target_public_id=:id")
+                    .param("id", draft.publicId()).query(Integer.class).single()).isEqualTo(1);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    private void awaitActiveDatabaseConnections(int minimum) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (((HikariDataSource) dataSource).getHikariPoolMXBean().getActiveConnections() < minimum
+                && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertThat(((HikariDataSource) dataSource).getHikariPoolMXBean().getActiveConnections())
+                .isGreaterThanOrEqualTo(minimum);
+        Thread.sleep(100);
     }
 
     private Actor actor(String employeeNo) {

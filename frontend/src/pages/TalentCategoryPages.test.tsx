@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
 import { KnowledgeSection, SkillSection } from '../components/TalentProfilePanel'
+import { TalentSubmissionStatusPanel } from '../components/TalentSubmissionStatusPanel'
 import type { TalentProfile, TalentSubmission, User } from '../types'
 
 const { apiMock, useAuthMock } = vi.hoisted(() => ({ apiMock: vi.fn(), useAuthMock: vi.fn() }))
@@ -146,6 +147,28 @@ describe('タレント情報の種類別ルート', () => {
     expect(screen.getByRole('link', { name: '修正して再申請' })).toHaveAttribute('href', '/talent/SKILL/RETURNED-1/edit')
     expect(screen.getAllByRole('link', { name: '履歴を見る' })[0]).toHaveAttribute('href', '/talent/CHAIN-1/history')
     expect(screen.queryByText(/\bDRAFT\b|\bSUBMITTED\b|\bRETURNED\b/)).not.toBeInTheDocument()
+  })
+
+  it('利用者切替後の申請状況に前利用者の下書きをキャッシュ表示しない', async () => {
+    const draft = submission('DRAFT', 'DRAFT-A', 'CHAIN-A', 1)
+    let account = 'A'
+    apiMock.mockImplementation((path: string) => path === '/api/v1/talent-submissions/me?type=SKILL'
+      ? Promise.resolve(account === 'A' ? [draft] : [])
+      : Promise.resolve([]))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } })
+    const tree = () => <QueryClientProvider client={client}><MemoryRouter>
+      <TalentSubmissionStatusPanel types={['SKILL']} />
+    </MemoryRouter></QueryClientProvider>
+
+    const first = render(tree())
+    expect(await screen.findByText('下書き')).toBeInTheDocument()
+    first.unmount()
+
+    account = 'B'
+    useAuthMock.mockReturnValue({ user: { ...currentUser, accountPublicId: 'ACCOUNT-2' } })
+    render(tree())
+    expect(await screen.findByText('手続き中または差戻しの申請はありません。')).toBeInTheDocument()
+    expect(screen.queryByText('下書き')).not.toBeInTheDocument()
   })
 
   it('既存下書きの再開リンクから編集routeへ移動して同じ申請を読み込む', async () => {

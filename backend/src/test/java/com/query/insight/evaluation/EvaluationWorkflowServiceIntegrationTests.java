@@ -55,8 +55,10 @@ class EvaluationWorkflowServiceIntegrationTests {
                 "経営判断に利用できる内容です", "TRACE-EXEC-APPROVE");
 
         assertThat(finalized.status()).isEqualTo("FINALIZED");
-        assertThat(finalized.finalScore()).isEqualByComparingTo("63.33");
         assertThat(finalized.finalGrade()).isEqualTo("C");
+        assertThat(jdbc.sql("SELECT final_score FROM evaluation_targets WHERE public_id=:publicId")
+                .param("publicId", target.publicId()).query(java.math.BigDecimal.class).single())
+                .isEqualByComparingTo("63.33");
         assertThat(jdbc.sql("""
                 SELECT COUNT(*) FROM manager_evaluations m JOIN profile_status_snapshots s
                   ON s.id=m.profile_status_snapshot_id
@@ -235,7 +237,7 @@ class EvaluationWorkflowServiceIntegrationTests {
     }
 
     @Test
-    void executiveApproveBackfillsMissingSnapshotAndPreservesAnExistingSnapshot() {
+    void executiveApproveBackfillsMissingSnapshotAndRefreshesAnExistingSnapshotAfterProfileChange() {
         Actor executive = actor("qi0039@query.local");
         Target missingTarget = prepareSubmittedTarget("QI0013");
         long missingManagerEvaluationId = currentManagerEvaluationId(missingTarget.publicId());
@@ -251,11 +253,25 @@ class EvaluationWorkflowServiceIntegrationTests {
         Target existingTarget = prepareSubmittedTarget("QI0014");
         long existingManagerEvaluationId = currentManagerEvaluationId(existingTarget.publicId());
         Long existingSnapshotId = profileSnapshotId(existingManagerEvaluationId);
+        SkillLevel source = jdbc.sql("""
+                SELECT es.id,es.proficiency_level FROM employee_skills es
+                JOIN evaluation_targets t ON t.employee_id=es.employee_id
+                WHERE t.public_id=:publicId ORDER BY es.id LIMIT 1
+                """).param("publicId", existingTarget.publicId())
+                .query((rs, row) -> new SkillLevel(rs.getLong("id"), rs.getInt("proficiency_level")))
+                .optional().orElseThrow();
+        jdbc.sql("UPDATE employee_skills SET proficiency_level=:level WHERE id=:id")
+                .param("level", source.level() == 5 ? 4 : 5).param("id", source.id()).update();
 
         service.approve(executive.accountPublicId(), existingTarget.publicId(), existingTarget.version(),
                 null, "TRACE-APPROVE-SNAPSHOT-2");
 
-        assertThat(profileSnapshotId(existingManagerEvaluationId)).isEqualTo(existingSnapshotId).isNotNull();
+        Long refreshedSnapshotId = profileSnapshotId(existingManagerEvaluationId);
+        assertThat(refreshedSnapshotId).isNotNull().isNotEqualTo(existingSnapshotId);
+        assertThat(refreshedSnapshotId).isEqualTo(jdbc.sql("""
+                SELECT s.id FROM profile_status_snapshots s JOIN evaluation_targets t ON t.employee_id=s.employee_id
+                WHERE t.public_id=:publicId ORDER BY s.calculated_at DESC,s.id DESC LIMIT 1
+                """).param("publicId", existingTarget.publicId()).query(Long.class).single());
     }
 
     @Test
@@ -426,6 +442,9 @@ class EvaluationWorkflowServiceIntegrationTests {
     }
 
     private record Target(String publicId, long version) {
+    }
+
+    private record SkillLevel(long id, int level) {
     }
 
 }

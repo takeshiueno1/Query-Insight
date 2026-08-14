@@ -148,7 +148,7 @@ public class EvaluationWorkflowService {
                         rs.getInt("finalized"), rs.getInt("overdue"))).single();
         List<ExecutiveListItem> items = jdbc.sql("""
                 SELECT t.public_id,CONCAT(e.last_name,' ',e.first_name) employee_name,d.name department_name,
-                  t.status,t.version,t.final_score,t.final_grade,m.grade manager_grade,p.name period_name,
+                  t.status,t.version,t.final_grade,m.grade manager_grade,p.name period_name,
                   CASE WHEN t.status='DRAFT' THEN p.self_deadline
                     WHEN t.status IN ('SELF_RETURNED','SELF_SUBMITTED','MANAGER_IN_PROGRESS','MANAGER_RETURNED') THEN p.manager_deadline
                     ELSE NULL END active_deadline
@@ -159,7 +159,7 @@ public class EvaluationWorkflowService {
                 ORDER BY CASE WHEN t.status='EXECUTIVE_REVIEW' THEN 0 ELSE 1 END,p.manager_deadline,t.public_id
                 """).query((rs, row) -> new ExecutiveListItem(rs.getString("public_id"), rs.getString("employee_name"),
                         rs.getString("department_name"), rs.getString("status"), rs.getLong("version"),
-                        rs.getBigDecimal("final_score"), rs.getString("final_grade"), rs.getString("manager_grade"),
+                        rs.getString("final_grade"), rs.getString("manager_grade"),
                         rs.getString("period_name"), isPast(rs.getTimestamp("active_deadline")))).list();
         List<Distribution> distributions = jdbc.sql("""
                 SELECT '全社' department_name,t.final_grade,COUNT(*) employee_count
@@ -188,7 +188,7 @@ public class EvaluationWorkflowService {
         requireVersion(target, version);
         Status next = EvaluationWorkflow.requireTransition(Status.parse(target.status()), Action.EXECUTIVE_APPROVE);
         ManagerEvaluation manager = managerEvaluationRequired(target);
-        ensureProfileStatusSnapshot(manager, target.employeeId());
+        refreshProfileStatusSnapshot(manager.id(), target.employeeId());
         Instant now = Instant.now();
         jdbc.sql("UPDATE manager_evaluations SET status='FINALIZED',finalized_at=:now WHERE id=:id AND status='SUBMITTED'")
                 .param("now", Timestamp.from(now)).param("id", manager.id()).update();
@@ -289,8 +289,7 @@ public class EvaluationWorkflowService {
         List<ComparisonDetail> details = comparisonDetails(target, managerValues);
         return new ManagerEvaluationResponse(target.publicId(), target.employeePublicId(), target.employeeName(),
                 target.departmentName(), target.periodName(), target.status(), version, target.late(),
-                manager == null ? null : manager.summary(), manager == null ? null : manager.score(),
-                manager == null ? null : manager.grade(), details);
+                manager == null ? null : manager.summary(), manager == null ? null : manager.grade(), details);
     }
 
     private ExecutiveEvaluationResponse executiveResponse(Target target) {
@@ -306,22 +305,21 @@ public class EvaluationWorkflowService {
                         rs.getTimestamp("occurred_at").toInstant())).list();
         return new ExecutiveEvaluationResponse(target.publicId(), target.employeeName(), target.departmentName(),
                 target.periodName(), target.status(), target.version(), target.late(),
-                manager == null ? null : manager.summary(), manager == null ? null : manager.score(),
-                manager == null ? null : manager.grade(), target.finalScore(), target.finalGrade(), details, events);
+                manager == null ? null : manager.summary(), manager == null ? null : manager.grade(),
+                target.finalGrade(), details, events);
     }
 
     private List<ComparisonDetail> comparisonDetails(Target target, Map<String, ManagerValue> managerValues) {
         return jdbc.sql("""
-                SELECT c.axis_code,c.display_name,c.description,s.level self_level,s.evidence
+                SELECT c.axis_code,c.display_name,c.description
                 FROM evaluation_criteria c JOIN evaluation_periods p ON p.criteria_version_id=c.criteria_version_id
                 JOIN evaluation_targets t ON t.period_id=p.id
-                LEFT JOIN self_evaluation_details s ON s.target_id=t.id AND s.axis_code=c.axis_code
                 WHERE t.id=:targetId ORDER BY c.sort_order
                 """).param("targetId", target.id()).query((rs, row) -> {
                     ManagerValue value = managerValues.get(rs.getString("axis_code"));
                     return new ComparisonDetail(rs.getString("axis_code"), rs.getString("display_name"),
-                            rs.getString("description"), (Integer) rs.getObject("self_level"), rs.getString("evidence"),
-                            value == null ? null : value.rank(), value == null ? null : value.comment());
+                            rs.getString("description"), value == null ? null : value.rank(),
+                            value == null ? null : value.comment());
                 }).list();
     }
 
@@ -520,13 +518,12 @@ public class EvaluationWorkflowService {
                 .optional();
     }
 
-    private void ensureProfileStatusSnapshot(ManagerEvaluation manager, long employeeId) {
-        if (manager.profileStatusSnapshotId() != null) return;
+    private void refreshProfileStatusSnapshot(long managerEvaluationId, long employeeId) {
         long snapshotId = profileStatusService.recalculate(employeeId).id();
         jdbc.sql("""
                 UPDATE manager_evaluations SET profile_status_snapshot_id=:snapshotId
-                WHERE id=:id AND profile_status_snapshot_id IS NULL
-                """).param("snapshotId", snapshotId).param("id", manager.id()).update();
+                WHERE id=:id
+                """).param("snapshotId", snapshotId).param("id", managerEvaluationId).update();
     }
 
     private long requireExecutive(String accountPublicId) {
@@ -619,15 +616,15 @@ public class EvaluationWorkflowService {
     }
     public record ManagerEvaluationResponse(String publicId, String employeePublicId, String employeeName,
             String departmentName, String periodName, String status, long targetVersion, boolean late, String summary,
-            BigDecimal score, String grade, List<ComparisonDetail> details) {
+            String grade, List<ComparisonDetail> details) {
     }
-    public record ComparisonDetail(String axisCode, String displayName, String description, Integer selfLevel,
-            String selfEvidence, String managerRank, String managerComment) {
+    public record ComparisonDetail(String axisCode, String displayName, String description,
+            String managerRank, String managerComment) {
     }
     public record DashboardCounts(int total, int pending, int finalized, int overdue) {
     }
     public record ExecutiveListItem(String publicId, String employeeName, String departmentName, String status,
-            long version, BigDecimal finalScore, String finalGrade, String managerGrade, String periodName,
+            long version, String finalGrade, String managerGrade, String periodName,
             boolean late) {
     }
     public record Distribution(String departmentName, String grade, int employeeCount) {
@@ -636,8 +633,8 @@ public class EvaluationWorkflowService {
             List<Distribution> distributions) {
     }
     public record ExecutiveEvaluationResponse(String publicId, String employeeName, String departmentName,
-            String periodName, String status, long targetVersion, boolean late, String summary, BigDecimal score,
-            String grade, BigDecimal finalScore, String finalGrade, List<ComparisonDetail> details,
+            String periodName, String status, long targetVersion, boolean late, String summary,
+            String grade, String finalGrade, List<ComparisonDetail> details,
             List<WorkflowEvent> events) {
     }
     public record WorkflowEvent(String action, String fromStatus, String toStatus, String reason, String comment,

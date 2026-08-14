@@ -9,6 +9,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -145,6 +146,26 @@ public class TalentAttachmentService {
         boolean executiveAll = roles.contains("OFFICER") && hasOfficerGrant(accountPublicId, "ALL");
         if (!owner && !currentManager && !executiveAll) throw notFound();
         return new Download(attachment.fileName(), attachment.contentType(), attachment.content());
+    }
+
+    public List<Summary> listOwn(String employeePublicId, String submissionPublicId) {
+        Submission submission = jdbc.sql("""
+                SELECT s.id,s.status,s.version FROM talent_submissions s
+                JOIN employees e ON e.id=s.employee_id
+                WHERE s.public_id=:submissionPublicId AND e.public_id=:employeePublicId
+                """).param("submissionPublicId", submissionPublicId)
+                .param("employeePublicId", employeePublicId)
+                .query((rs, row) -> new Submission(rs.getLong("id"), rs.getString("status"),
+                        rs.getLong("version")))
+                .optional().orElseThrow(TalentAttachmentService::notFound);
+        if (!Set.of("DRAFT", "RETURNED").contains(submission.status())) throw conflict();
+        return jdbc.sql("""
+                SELECT public_id,file_name,content_type,size_bytes,scan_status
+                FROM talent_attachments WHERE submission_id=:submissionId ORDER BY id
+                """).param("submissionId", submission.id())
+                .query((rs, row) -> new Summary(rs.getString("public_id").trim(), rs.getString("file_name"),
+                        rs.getString("content_type"), rs.getLong("size_bytes"), rs.getString("scan_status")))
+                .list();
     }
 
     @Transactional
@@ -390,6 +411,10 @@ public class TalentAttachmentService {
 
     public record Upload(String publicId, String fileName, String contentType, long sizeBytes,
             String scanStatus, long submissionVersion) {
+    }
+
+    public record Summary(String publicId, String fileName, String contentType, long sizeBytes,
+            String scanStatus) {
     }
 
     private record ValidatedFile(byte[] content, String contentType, String fileName, String sha256) {

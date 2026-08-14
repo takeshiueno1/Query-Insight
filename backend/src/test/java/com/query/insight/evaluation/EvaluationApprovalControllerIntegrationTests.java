@@ -57,7 +57,18 @@ class EvaluationApprovalControllerIntegrationTests {
                 .content(managerPayload(version, true, "6軸を総合して判断しました")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("MANAGER_IN_PROGRESS"))
-                .andExpect(jsonPath("$.details[0].managerRank").value("S"));
+                .andExpect(jsonPath("$.details[0].managerRank").value("S"))
+                .andExpect(jsonPath("$.score").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.details[0].selfLevel").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.details[0].selfEvidence").doesNotHaveJsonPath());
+
+        mvc.perform(get("/api/v1/manager-evaluations/{id}", targetPublicId)
+                .with(officer(managerEmployeeNo, "SUBORDINATES")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.score").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.details[0].managerRank").value("S"))
+                .andExpect(jsonPath("$.details[0].selfLevel").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.details[0].selfEvidence").doesNotHaveJsonPath());
 
         mvc.perform(post("/api/v1/manager-evaluations/{id}/submit", targetPublicId)
                 .with(officer(managerEmployeeNo, "SUBORDINATES"))
@@ -65,7 +76,24 @@ class EvaluationApprovalControllerIntegrationTests {
                 .content(objectMapper.writeValueAsString(Map.of("version", targetVersion(targetPublicId)))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("EXECUTIVE_REVIEW"))
-                .andExpect(jsonPath("$.grade").value("C"));
+                .andExpect(jsonPath("$.grade").value("C"))
+                .andExpect(jsonPath("$.score").doesNotHaveJsonPath());
+
+        mvc.perform(get("/api/v1/executive/evaluations/{id}", targetPublicId)
+                .with(officer("QI0039", "ALL")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.grade").value("C"))
+                .andExpect(jsonPath("$.score").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.finalScore").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.details[0].managerRank").value("S"))
+                .andExpect(jsonPath("$.details[0].selfLevel").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.details[0].selfEvidence").doesNotHaveJsonPath());
+
+        mvc.perform(get("/api/v1/executive/evaluations")
+                .with(officer("QI0039", "ALL")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].status").exists())
+                .andExpect(jsonPath("$.items[0].finalScore").doesNotHaveJsonPath());
 
         mvc.perform(get("/api/v1/evaluations/me/final-result").with(general(employeeNo)))
                 .andExpect(status().isNotFound());
@@ -75,7 +103,12 @@ class EvaluationApprovalControllerIntegrationTests {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(Map.of("version", targetVersion(targetPublicId)))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("FINALIZED"));
+                .andExpect(jsonPath("$.status").value("FINALIZED"))
+                .andExpect(jsonPath("$.finalGrade").value("C"))
+                .andExpect(jsonPath("$.score").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.finalScore").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.details[0].selfLevel").doesNotHaveJsonPath())
+                .andExpect(jsonPath("$.details[0].selfEvidence").doesNotHaveJsonPath());
 
         mvc.perform(get("/api/v1/evaluations/me/final-result").with(general(employeeNo)))
                 .andExpect(status().isOk())

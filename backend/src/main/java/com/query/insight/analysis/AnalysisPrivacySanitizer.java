@@ -4,6 +4,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
@@ -24,7 +25,10 @@ public class AnalysisPrivacySanitizer {
 
     SanitizedRequest sanitize(String periodName,
             List<AiAnalysisClient.AxisInput> axes, AiAnalysisClient.TalentProfileInput talent) {
-        List<String> exactValues = knownIdentityValues();
+        List<Pattern> exactValues = knownIdentityValues().stream()
+                .map(value -> Pattern.compile(value,
+                        Pattern.LITERAL | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE))
+                .toList();
         List<AiAnalysisClient.AxisInput> sanitizedAxes = axes.stream()
                 .map(axis -> new AiAnalysisClient.AxisInput(sanitize(axis.axisCode(), exactValues),
                         sanitize(axis.displayName(), exactValues), axis.level(),
@@ -88,12 +92,14 @@ public class AnalysisPrivacySanitizer {
         }
     }
 
-    private static String sanitize(String input, List<String> exactValues) {
+    private static String sanitize(String input, List<Pattern> exactValues) {
         if (input == null) return null;
         String sanitized = EMAIL.matcher(input).replaceAll(REMOVED);
         sanitized = PUBLIC_ID.matcher(sanitized).replaceAll(REMOVED);
         sanitized = EMPLOYEE_NUMBER.matcher(sanitized).replaceAll(REMOVED);
-        for (String value : exactValues) sanitized = sanitized.replace(value, REMOVED);
+        for (Pattern value : exactValues) {
+            sanitized = value.matcher(sanitized).replaceAll(Matcher.quoteReplacement(REMOVED));
+        }
         return sanitized;
     }
 

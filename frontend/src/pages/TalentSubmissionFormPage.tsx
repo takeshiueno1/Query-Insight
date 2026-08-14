@@ -3,24 +3,16 @@ import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { z } from 'zod'
+import { useAuth } from '../features/auth/auth-context'
 import { api, ApiError } from '../lib/api'
 import { competencyLevels } from '../lib/competency'
-import { talentCategoryRoutes, talentSubmissionStatusLabels, talentSubmissionTypeLabels, type TalentMasterChoice, type TalentSubmission, type TalentSubmissionPayload, type TalentSubmissionType } from '../types'
+import { talentCategoryRoutes, talentSubmissionStatusLabels, talentSubmissionTypeLabels, type TalentAttachmentScanStatus, type TalentAttachmentSummary, type TalentAttachmentUpload, type TalentMasterChoice, type TalentSubmission, type TalentSubmissionPayload, type TalentSubmissionType } from '../types'
 
 type FormValues = {
   masterPublicId: string; level: string; yearsExperience: string; lastUsedOn: string; evidence: string
   projectName: string; industry: string; roleName: string; startDate: string; endDate: string
   summary: string; achievements: string; technologies: string; acquiredOn: string; expiresOn: string
   credentialReference: string
-}
-
-type AttachmentUpload = {
-  publicId: string
-  fileName: string
-  contentType: string
-  sizeBytes: number
-  scanStatus: 'PENDING' | 'CLEAN' | 'INFECTED' | 'ERROR'
-  submissionVersion: number
 }
 
 const initialValues: FormValues = {
@@ -37,8 +29,22 @@ const schemas = {
   CERTIFICATION: z.object({ masterPublicId: required('資格', 26), acquiredOn: required('取得日', 10), expiresOn: z.string(), credentialReference: z.string().max(100) }),
 } satisfies Record<TalentSubmissionType, z.ZodType>
 
+const attachmentStatusLabels: Record<TalentAttachmentScanStatus, string> = {
+  PENDING: '検査待ち',
+  CLEAN: '検査済み',
+  INFECTED: '隔離済み',
+  ERROR: '検査エラー',
+}
+const attachmentQueryKey = (accountPublicId: string, submissionPublicId: string) =>
+  ['talent-attachments', 'mine', accountPublicId, submissionPublicId] as const
+const fetchAttachments = (submissionPublicId: string) => api<TalentAttachmentSummary[]>(
+  `/api/v1/talent-submissions/${submissionPublicId}/attachments`,
+)
+
 export function TalentSubmissionFormPage() {
   const { type = 'SKILL', publicId } = useParams()
+  const { user } = useAuth()
+  const accountPublicId = user?.accountPublicId ?? ''
   const talentType = (Object.keys(talentSubmissionTypeLabels).includes(type.toUpperCase()) ? type.toUpperCase() : 'SKILL') as TalentSubmissionType
   const label = talentSubmissionTypeLabels[talentType]
   const { register, handleSubmit, reset } = useForm<FormValues>({ defaultValues: initialValues })
@@ -53,12 +59,17 @@ export function TalentSubmissionFormPage() {
     enabled: talentType !== 'CAREER',
   })
   const existingQuery = useQuery({
-    queryKey: ['talent-submissions', 'mine', talentType],
+    queryKey: ['talent-submissions', 'mine', accountPublicId, talentType],
     queryFn: () => api<TalentSubmission[]>(`/api/v1/talent-submissions/me?type=${talentType}`),
-    enabled: Boolean(publicId),
+    enabled: Boolean(accountPublicId && publicId),
   })
   const existing = existingQuery.data?.find((item) => item.publicId === publicId)
   const activeSubmission = existing ?? (draft?.publicId === publicId ? draft : undefined)
+  const attachmentsQuery = useQuery({
+    queryKey: attachmentQueryKey(accountPublicId, activeSubmission?.publicId ?? ''),
+    queryFn: () => fetchAttachments(activeSubmission!.publicId),
+    enabled: Boolean(accountPublicId && activeSubmission && ['DRAFT', 'RETURNED'].includes(activeSubmission.status)),
+  })
 
   useEffect(() => {
     if (!existing || draft !== null) return
@@ -68,11 +79,17 @@ export function TalentSubmissionFormPage() {
 
   const persistSubmission = (submission: TalentSubmission) => {
     setDraft(submission)
-    client.setQueryData<TalentSubmission[]>(['talent-submissions', 'mine', talentType], (current = []) => [
+    client.setQueryData<TalentSubmission[]>(['talent-submissions', 'mine', accountPublicId, talentType], (current = []) => [
       ...current.filter((item) => item.publicId !== submission.publicId),
       submission,
     ])
     if (publicId !== submission.publicId) navigate(`/talent/${talentType}/${submission.publicId}/edit`, { replace: true })
+  }
+
+  const refetchAttachments = async (submissionPublicId: string) => {
+    const queryKey = attachmentQueryKey(accountPublicId, submissionPublicId)
+    await client.invalidateQueries({ queryKey, refetchType: 'none' })
+    await client.fetchQuery({ queryKey, queryFn: () => fetchAttachments(submissionPublicId) })
   }
 
   const recoverSubmission = async (failed: TalentSubmission | null) => {
@@ -85,6 +102,7 @@ export function TalentSubmissionFormPage() {
       if (!recovered || recovered.revisionNo < failed.revisionNo
           || recovered.revisionNo === failed.revisionNo && recovered.version < failed.version) return
       persistSubmission(recovered)
+      if (['DRAFT', 'RETURNED'].includes(recovered.status)) await refetchAttachments(recovered.publicId)
     } catch {
       // The original operation error remains the actionable message; recovery is best effort.
     }
@@ -113,9 +131,9 @@ export function TalentSubmissionFormPage() {
         const form = new FormData()
         form.append('file', file)
         form.append('version', String(current.version))
-        let uploaded: AttachmentUpload
+        let uploaded: TalentAttachmentUpload
         try {
-          uploaded = await api<AttachmentUpload>(`/api/v1/talent-submissions/${current.publicId}/attachments`, { method: 'POST', body: form })
+          uploaded = await api<TalentAttachmentUpload>(`/api/v1/talent-submissions/${current.publicId}/attachments`, { method: 'POST', body: form })
         } catch (error) {
           await recoverSubmission(current)
           const saved = uploadedCount > 0 ? '成功済みの添付は保存されています。' : '下書きは保存されています。'
@@ -123,6 +141,11 @@ export function TalentSubmissionFormPage() {
         }
         current = { ...current, version: uploaded.submissionVersion }
         persistSubmission(current)
+        client.setQueryData<TalentAttachmentSummary[]>(attachmentQueryKey(accountPublicId, current.publicId), (attachments = []) => [
+          ...attachments.filter((attachment) => attachment.publicId !== uploaded.publicId),
+          { publicId: uploaded.publicId, fileName: uploaded.fileName, contentType: uploaded.contentType,
+            sizeBytes: uploaded.sizeBytes, scanStatus: uploaded.scanStatus },
+        ])
         setFiles((pending) => pending.filter((item) => item !== file))
         if (uploaded.scanStatus === 'INFECTED') {
           throw new Error('安全でない添付ファイルが隔離されました。申請は提出されていません。')
@@ -149,6 +172,29 @@ export function TalentSubmissionFormPage() {
       setMessage(variables.action === 'submit' ? '直属上長へ申請しました。' : '下書きを保存しました。')
     },
     onError: (error) => setMessage(errorDetail(error)),
+  })
+
+  const deleteAttachment = useMutation({
+    mutationFn: async (attachment: TalentAttachmentSummary) => {
+      const submission = draft ?? activeSubmission
+      if (!submission) throw new Error('申請内容を再読み込みしてください。')
+      const result = await api<{ submissionVersion: number }>(
+        `/api/v1/talent-attachments/${attachment.publicId}?version=${submission.version}`,
+        { method: 'DELETE' },
+      )
+      return { attachment, submission, result }
+    },
+    onSuccess: ({ attachment, submission, result }) => {
+      mutation.reset()
+      persistSubmission({ ...submission, version: result.submissionVersion })
+      client.setQueryData<TalentAttachmentSummary[]>(attachmentQueryKey(accountPublicId, submission.publicId), (attachments = []) =>
+        attachments.filter((item) => item.publicId !== attachment.publicId))
+      setMessage('添付資料を削除しました。')
+    },
+    onError: async (error) => {
+      await recoverSubmission(draft ?? activeSubmission ?? null)
+      setMessage(errorDetail(error))
+    },
   })
 
   const selectFiles = (list: FileList | null) => {
@@ -186,12 +232,22 @@ export function TalentSubmissionFormPage() {
       {(talentType === 'SKILL' || talentType === 'KNOWLEDGE') && <label>根拠<textarea maxLength={1000} {...register('evidence')} /></label>}
       {talentType === 'CAREER' && <><label>案件名<input maxLength={150} {...register('projectName')} /></label><label>業界<input maxLength={100} {...register('industry')} /></label><label>役割<input maxLength={100} {...register('roleName')} /></label><label>開始日<input type="date" {...register('startDate')} /></label><label>終了日<input type="date" {...register('endDate')} /></label><label>概要<textarea maxLength={1000} {...register('summary')} /></label><label>成果<textarea maxLength={1500} {...register('achievements')} /></label><label>利用技術<textarea maxLength={1000} {...register('technologies')} /></label></>}
       {talentType === 'CERTIFICATION' && <><label>取得日<input type="date" {...register('acquiredOn')} /></label><label>有効期限<input type="date" {...register('expiresOn')} /></label><label>資格番号<input maxLength={100} {...register('credentialReference')} /></label></>}
-      {publicId && <p className="notice">既存の添付資料一覧は表示できません。差戻し後に必要な資料は再度添付してください。</p>}
+      {publicId && attachmentsQuery.isLoading && <p className="notice" role="status">添付資料を読み込んでいます…</p>}
+      {publicId && attachmentsQuery.isError && <p className="error-banner" role="alert">添付資料を取得できませんでした。</p>}
+      {publicId && attachmentsQuery.data && attachmentsQuery.data.length > 0 && <div aria-label="保存済みの根拠資料">
+        <p className="notice">保存済みの根拠資料</p>
+        <ul>{attachmentsQuery.data.map((attachment) => <li key={attachment.publicId}>
+          <span>{attachment.fileName}</span>{' '}
+          <span>{attachmentStatusLabels[attachment.scanStatus]}</span>{' '}
+          <button type="button" className="text-link" disabled={deleteAttachment.isPending}
+            aria-label={`${attachment.fileName}を削除`} onClick={() => deleteAttachment.mutate(attachment)}>削除</button>
+        </li>)}</ul>
+      </div>}
       <label className="reason-box">根拠資料（任意）<small>PDF/JPEG/PNG、3件まで、1件5MB以内</small><input aria-label="根拠資料（任意）" type="file" accept=".pdf,.jpg,.jpeg,.png" multiple onChange={(event) => selectFiles(event.target.files)} /></label>
       </fieldset>
       {draft && <p className="notice">状態: {talentSubmissionStatusLabels[draft.status]} / 第{draft.revisionNo}版</p>}
-      {message && <div role={mutation.isError ? 'alert' : 'status'} className={mutation.isError ? 'error-banner' : 'success-banner'}>{message}</div>}
-      <div className="form-actions"><Link className="secondary-button" to={talentCategoryRoutes[talentType]}>戻る</Link>{!submittedHere && <><button className="secondary-button" disabled={mutation.isPending} onClick={() => run('save')}>下書き保存</button><button className="primary-button" disabled={mutation.isPending} onClick={() => run('submit')}>直属上長へ申請</button></>}</div>
+      {message && <div role={mutation.isError || deleteAttachment.isError ? 'alert' : 'status'} className={mutation.isError || deleteAttachment.isError ? 'error-banner' : 'success-banner'}>{message}</div>}
+      <div className="form-actions"><Link className="secondary-button" to={talentCategoryRoutes[talentType]}>戻る</Link>{!submittedHere && <><button className="secondary-button" disabled={mutation.isPending || deleteAttachment.isPending} onClick={() => run('save')}>下書き保存</button><button className="primary-button" disabled={mutation.isPending || deleteAttachment.isPending} onClick={() => run('submit')}>直属上長へ申請</button></>}</div>
     </section>
   </>
 }

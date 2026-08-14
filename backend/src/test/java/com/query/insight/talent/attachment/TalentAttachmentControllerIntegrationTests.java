@@ -1,6 +1,7 @@
 package com.query.insight.talent.attachment;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -111,6 +112,47 @@ class TalentAttachmentControllerIntegrationTests {
         org.assertj.core.api.Assertions.assertThat(jdbc.sql(
                         "SELECT COUNT(*) FROM talent_attachments WHERE submission_id=:id")
                 .param("id", draft.id()).query(Integer.class).single()).isEqualTo(1);
+    }
+
+    @Test
+    void ownerListsOnlySafeSummaryAndDeletesPersistedScanErrorAtCurrentVersion() throws Exception {
+        var draft = createDraft();
+        scanner.returnResult(FileScanClient.Result.ERROR);
+        byte[] pdf = "%PDF-1.4\nowner-list\n%%EOF".getBytes();
+
+        mvc.perform(multipart("/api/v1/talent-submissions/{id}/attachments", draft.publicId())
+                        .file(new MockMultipartFile("file", "scan-error.pdf", "application/pdf", pdf))
+                        .param("version", "0").with(employeeJwt("QITEST", "GENERAL")))
+                .andExpect(status().isServiceUnavailable());
+
+        String response = mvc.perform(get("/api/v1/talent-submissions/{id}/attachments", draft.publicId())
+                        .with(employeeJwt("QITEST", "GENERAL")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", org.hamcrest.Matchers.hasSize(1)))
+                .andExpect(jsonPath("$[0].fileName").value("scan-error.pdf"))
+                .andExpect(jsonPath("$[0].contentType").value("application/pdf"))
+                .andExpect(jsonPath("$[0].sizeBytes").value(pdf.length))
+                .andExpect(jsonPath("$[0].scanStatus").value("ERROR"))
+                .andExpect(jsonPath("$[0].submissionVersion").doesNotExist())
+                .andExpect(jsonPath("$[0].content").doesNotExist())
+                .andExpect(jsonPath("$[0].sha256").doesNotExist())
+                .andExpect(jsonPath("$[0].lastScanErrorCode").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        String attachmentId = new tools.jackson.databind.ObjectMapper().readTree(response)
+                .path(0).path("publicId").asText();
+
+        mvc.perform(get("/api/v1/talent-submissions/{id}/attachments", draft.publicId())
+                        .with(employeeJwt("QI0006", "GENERAL")))
+                .andExpect(status().isNotFound());
+
+        mvc.perform(delete("/api/v1/talent-attachments/{id}", attachmentId)
+                        .param("version", "1").with(employeeJwt("QITEST", "GENERAL")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.submissionVersion").value(2));
+        mvc.perform(get("/api/v1/talent-submissions/{id}/attachments", draft.publicId())
+                        .with(employeeJwt("QITEST", "GENERAL")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", org.hamcrest.Matchers.empty()));
     }
 
     private TalentSubmissionRepository.Row createDraft() {

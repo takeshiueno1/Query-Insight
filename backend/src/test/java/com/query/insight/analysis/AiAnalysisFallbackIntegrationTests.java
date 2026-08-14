@@ -210,6 +210,26 @@ class AiAnalysisFallbackIntegrationTests {
     }
 
     @Test
+    void sanitizerRemovesEnglishIdentityCaseInsensitivelyAndTreatsRegexCharactersLiterally() {
+        jdbc.sql("""
+                UPDATE employees SET last_name='Alice',first_name='Smith'
+                WHERE employee_no='QI0006'
+                """).update();
+        jdbc.sql("""
+                UPDATE departments SET code='DevTeam',name='Dév.Team+[A]'
+                WHERE id=(SELECT department_id FROM employees WHERE employee_no='QI0006')
+                """).update();
+        var emptyTalent = new AiAnalysisClient.TalentProfileInput(null, 0,
+                List.of(), List.of(), List.of(), List.of());
+
+        var sanitized = privacySanitizer.sanitize(
+                "alice smith / DEVTEAM / dÉv.team+[a] / dévXteamA", List.of(), emptyTalent);
+
+        assertThat(sanitized.periodName())
+                .isEqualTo("[除去] / [除去] / [除去] / dévXteamA");
+    }
+
+    @Test
     void successfulAiKeepsModelOutputPersistenceAuditAndExcludesPrivateEvaluation() {
         actor = actor("QI0005");
         StubClient client = new StubClient();

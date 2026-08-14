@@ -135,8 +135,6 @@ export type EvaluationComparisonDetail = {
   axisCode: string
   displayName: string
   description: string
-  selfLevel: number | null
-  selfEvidence: string | null
   managerRank: EvaluationRank | null
   managerComment: string | null
 }
@@ -151,14 +149,13 @@ export type ManagerEvaluation = {
   targetVersion: number
   late: boolean
   summary: string | null
-  score: number | null
   grade: EvaluationRank | null
   details: EvaluationComparisonDetail[]
 }
 
 export type ExecutiveDashboard = {
   counts: { total: number; pending: number; finalized: number; overdue: number }
-  items: Array<{ publicId: string; employeeName: string; departmentName: string | null; status: string; version: number; finalScore: number | null; finalGrade: EvaluationRank | null; managerGrade: EvaluationRank | null; periodName: string; late: boolean }>
+  items: Array<{ publicId: string; employeeName: string; departmentName: string | null; status: string; version: number; finalGrade: EvaluationRank | null; managerGrade: EvaluationRank | null; periodName: string; late: boolean }>
   distributions: Array<{ departmentName: string; grade: string; employeeCount: number }>
 }
 
@@ -171,9 +168,7 @@ export type ExecutiveEvaluation = {
   targetVersion: number
   late: boolean
   summary: string | null
-  score: number | null
   grade: EvaluationRank | null
-  finalScore: number | null
   finalGrade: EvaluationRank | null
   details: EvaluationComparisonDetail[]
   events: Array<{ action: string; fromStatus: string; toStatus: string; reason: string | null; comment: string | null; late: boolean; deadlineType: 'SELF' | 'MANAGER'; occurredAt: string }>
@@ -304,7 +299,10 @@ export type TalentSubmission = {
   payload: TalentSubmissionPayload; submittedAt: string | null; decidedAt: string | null
 }
 export type ManagerTalentItem = { publicId: string; type: TalentSubmissionType; status: TalentSubmissionStatus; version: number; submittedAt: string; employeePublicId: string; employeeName: string }
-export type TalentAttachment = { publicId: string; fileName: string; contentType: string; sizeBytes: number; scanStatus: string }
+export type TalentAttachmentScanStatus = 'PENDING' | 'CLEAN' | 'INFECTED' | 'ERROR'
+export type TalentAttachmentSummary = { publicId: string; fileName: string; contentType: string; sizeBytes: number; scanStatus: TalentAttachmentScanStatus }
+export type TalentAttachmentUpload = TalentAttachmentSummary & { submissionVersion: number }
+export type TalentAttachment = TalentAttachmentSummary
 export type ManagerTalentDetail = { submission: TalentSubmission; employee: { publicId: string; displayName: string }; approvedPredecessorPayload: TalentSubmissionPayload | null; attachments: TalentAttachment[]; events: Array<{ action: string; fromStatus: string | null; toStatus: string; reason: string | null; occurredAt: string }> }
 export type MasterRequest = {
   publicId: string

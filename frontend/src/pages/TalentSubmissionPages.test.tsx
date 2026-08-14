@@ -8,8 +8,9 @@ import type { Problem, TalentSubmission, TalentSubmissionType } from '../types'
 import { TalentSubmissionFormPage } from './TalentSubmissionFormPage'
 import { TalentSubmissionHistoryPage } from './TalentSubmissionHistoryPage'
 
-const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }))
+const { apiMock, useAuthMock } = vi.hoisted(() => ({ apiMock: vi.fn(), useAuthMock: vi.fn() }))
 const asyncWait = { timeout: 5_000 }
+vi.mock('../features/auth/auth-context', () => ({ useAuth: useAuthMock }))
 vi.mock('../lib/api', () => ({
   api: apiMock,
   ApiError: class extends Error {
@@ -34,7 +35,10 @@ function LocationProbe() {
 }
 
 describe('TalentSubmissionFormPage', () => {
-  beforeEach(() => apiMock.mockReset().mockResolvedValue([]))
+  beforeEach(() => {
+    apiMock.mockReset().mockResolvedValue([])
+    useAuthMock.mockReturnValue({ user: { accountPublicId: 'ACCOUNT-A' } })
+  })
   afterEach(cleanup)
 
   it.each([
@@ -247,7 +251,10 @@ describe('TalentSubmissionFormPage', () => {
         updateVersions.push(JSON.parse(String(init.body)).version)
         return Promise.resolve(path.endsWith('/RETURNED-1') ? revised : updated)
       }
-      if (path === '/api/v1/talent-submissions/DRAFT-2/attachments') {
+      if (path === '/api/v1/talent-submissions/DRAFT-2/attachments' && !init?.method) {
+        return Promise.resolve([])
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-2/attachments' && init?.method === 'POST') {
         const form = init?.body as FormData
         uploadedFiles.push((form.get('file') as File).name)
         uploadVersions.push(String(form.get('version')))
@@ -295,7 +302,10 @@ describe('TalentSubmissionFormPage', () => {
         serverDraft = { ...serverDraft, version: version + 1 }
         return Promise.resolve(serverDraft)
       }
-      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments') {
+      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments' && !init?.method) {
+        return Promise.resolve([])
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments' && init?.method === 'POST') {
         const form = init?.body as FormData
         uploadVersions.push(String(form.get('version')))
         uploadCalls += 1
@@ -345,7 +355,10 @@ describe('TalentSubmissionFormPage', () => {
         serverDraft = { ...serverDraft, version: version + 1 }
         return Promise.resolve(serverDraft)
       }
-      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments') {
+      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments' && !init?.method) {
+        return Promise.resolve([])
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments' && init?.method === 'POST') {
         const form = init?.body as FormData
         uploadVersions.push(String(form.get('version')))
         uploadCalls += 1
@@ -379,6 +392,104 @@ describe('TalentSubmissionFormPage', () => {
     expect(uploadVersions).toEqual(['1', '2'])
     expect(uploadCalls).toBe(2)
     expect(submitVersions).toEqual([3])
+  })
+
+  it('検査失敗後に保存済み添付を再取得して削除しCLEAN添付へ差し替えて提出する', async () => {
+    let serverDraft = existingSubmission('DRAFT', 'DRAFT-1', 'CHAIN-1', 1, 0)
+    let serverAttachments: Array<{ publicId: string; fileName: string; contentType: string; sizeBytes: number; scanStatus: string }> = []
+    let deletedUrl = ''
+    let submitVersion: number | undefined
+    const scanProblem: Problem = { title: '検査失敗', detail: 'ファイル検査を完了できませんでした。時間をおいて再試行します', status: 503, code: 'ATTACHMENT_SCAN_UNAVAILABLE' }
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') return Promise.resolve([serverDraft])
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      if (path === '/api/v1/talent-submissions/DRAFT-1' && init?.method === 'PUT') {
+        serverDraft = { ...serverDraft, version: serverDraft.version + 1 }
+        return Promise.resolve(serverDraft)
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments' && !init?.method) {
+        return Promise.resolve(serverAttachments)
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments' && init?.method === 'POST') {
+        const file = (init.body as FormData).get('file') as File
+        serverDraft = { ...serverDraft, version: serverDraft.version + 1 }
+        if (file.name === 'scan-error.pdf') {
+          serverAttachments = [{ publicId: 'ATTACHMENT-ERROR', fileName: file.name,
+            contentType: file.type, sizeBytes: file.size, scanStatus: 'ERROR' }]
+          return Promise.reject(new ApiError(scanProblem))
+        }
+        serverAttachments = [{ publicId: 'ATTACHMENT-CLEAN', fileName: file.name,
+          contentType: file.type, sizeBytes: file.size, scanStatus: 'CLEAN' }]
+        return Promise.resolve({ ...serverAttachments[0], submissionVersion: serverDraft.version })
+      }
+      if (String(path).startsWith('/api/v1/talent-attachments/ATTACHMENT-ERROR?') && init?.method === 'DELETE') {
+        deletedUrl = path
+        serverAttachments = []
+        serverDraft = { ...serverDraft, version: serverDraft.version + 1 }
+        return Promise.resolve({ submissionVersion: serverDraft.version })
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-1/submit') {
+        submitVersion = JSON.parse(String(init?.body)).version
+        return Promise.resolve({ ...serverDraft, status: 'SUBMITTED', version: serverDraft.version + 1 })
+      }
+      return Promise.resolve([])
+    })
+    renderExisting('SKILL', 'DRAFT-1')
+    await screen.findByDisplayValue('既存の根拠')
+    fireEvent.change(screen.getByLabelText('根拠資料（任意）'), { target: { files: [
+      new File(['broken'], 'scan-error.pdf', { type: 'application/pdf' }),
+    ] } })
+
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('ファイル検査を完了できませんでした')
+    expect(await screen.findByText('scan-error.pdf')).toBeInTheDocument()
+    expect(screen.getByText('検査エラー')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'scan-error.pdfを削除' }))
+    await waitFor(() => expect(screen.queryByText('scan-error.pdf')).not.toBeInTheDocument())
+    expect(deletedUrl).toBe('/api/v1/talent-attachments/ATTACHMENT-ERROR?version=2')
+    expect(screen.getByRole('status')).toHaveTextContent('添付資料を削除しました。')
+
+    fireEvent.change(screen.getByLabelText('根拠資料（任意）'), { target: { files: [
+      new File(['clean'], 'replacement.pdf', { type: 'application/pdf' }),
+    ] } })
+    fireEvent.click(screen.getByRole('button', { name: '直属上長へ申請' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('直属上長へ申請しました'))
+    expect(submitVersion).toBe(5)
+  })
+
+  it('利用者を切り替えたとき前利用者の申請と添付をキャッシュ表示しない', async () => {
+    const draft = existingSubmission('DRAFT', 'DRAFT-1', 'CHAIN-1', 1, 2)
+    let account = 'A'
+    let accountBMineCalls = 0
+    apiMock.mockImplementation((path: string) => {
+      if (path === '/api/v1/talent-masters/SKILL') return Promise.resolve([])
+      if (path === '/api/v1/talent-submissions/me?type=SKILL') {
+        if (account === 'B') accountBMineCalls += 1
+        return Promise.resolve(account === 'A' ? [draft] : [])
+      }
+      if (path === '/api/v1/talent-submissions/DRAFT-1/attachments') return Promise.resolve(account === 'A'
+        ? [{ publicId: 'ATTACHMENT-A', fileName: '利用者Aだけの資料.pdf', contentType: 'application/pdf', sizeBytes: 10, scanStatus: 'CLEAN' }]
+        : [])
+      return Promise.resolve([])
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } })
+    const tree = () => <MemoryRouter initialEntries={['/talent/SKILL/DRAFT-1/edit']}>
+      <QueryClientProvider client={client}><Routes>
+        <Route path="/talent/:type/:publicId/edit" element={<TalentSubmissionFormPage />} />
+      </Routes></QueryClientProvider>
+    </MemoryRouter>
+
+    const first = render(tree())
+    expect(await screen.findByText('利用者Aだけの資料.pdf')).toBeInTheDocument()
+    first.unmount()
+
+    account = 'B'
+    useAuthMock.mockReturnValue({ user: { accountPublicId: 'ACCOUNT-B' } })
+    render(tree())
+    await waitFor(() => expect(accountBMineCalls).toBe(1))
+    expect(await screen.findByRole('alert')).toHaveTextContent('申請内容を取得できませんでした。')
+    expect(screen.queryByText('利用者Aだけの資料.pdf')).not.toBeInTheDocument()
   })
 
   it('既存申請の取得中と取得失敗を支援技術へ通知する', async () => {

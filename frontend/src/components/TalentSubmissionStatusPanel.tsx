@@ -1,13 +1,17 @@
 import { useQueries } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../features/auth/auth-context'
 import { api } from '../lib/api'
 import { talentSubmissionStatusLabels, talentSubmissionTypeLabels, type TalentSubmission, type TalentSubmissionType } from '../types'
 
 export function TalentSubmissionStatusPanel({ types }: { types: TalentSubmissionType[] }) {
+  const { user } = useAuth()
+  const accountPublicId = user?.accountPublicId ?? ''
   const queries = useQueries({
     queries: types.map((type) => ({
-      queryKey: ['talent-submissions', 'mine', type],
+      queryKey: ['talent-submissions', 'mine', accountPublicId, type],
       queryFn: () => api<TalentSubmission[]>(`/api/v1/talent-submissions/me?type=${type}`),
+      enabled: Boolean(accountPublicId),
     })),
   })
   if (queries.some((query) => query.isLoading)) return <section className="card" role="status"><p>申請状況を読み込んでいます…</p></section>
