@@ -80,8 +80,48 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
                 .param("deadline", LocalDateTime.of(2026, 7, 31, 23, 59)).update();
         ensureApprovalExample("QI0004", "EXECUTIVE_REVIEW", now);
         ensureApprovalExample("QI0005", "FINALIZED", now);
+        ensureApprovalExample("QI0008", "FINALIZED", now);
         ensureApprovalExample("QI0007", "MANAGER_RETURNED", now);
+        ensureCurrentEvaluationNotifications(now);
         ensureTalentWorkflowExamples(now);
+    }
+
+    private void ensureCurrentEvaluationNotifications(LocalDateTime now) {
+        jdbc.sql("""
+                DELETE FROM notifications
+                WHERE dedupe_key IN ('local-evaluation-submitted-employee','local-manager-review')
+                """).update();
+        ensureNotification("QI0008", "EVALUATION_FINALIZED", "上長評価が確定しました",
+                "確定した上長評価の結果を確認できます。", "/evaluations/manager-result",
+                "local-current-evaluation-finalized", now);
+        String returnedTarget = evaluationTargetPublicId("QI0007");
+        ensureNotification("QI0002", "MANAGER_EVALUATION_RETURNED", "最終承認者から評価が差し戻されました",
+                "差戻し理由を確認し、上長評価を修正してください。", "/evaluations/manager/" + returnedTarget,
+                "local-current-evaluation-manager-returned", now);
+        String executiveTarget = evaluationTargetPublicId("QI0004");
+        ensureNotification("QI0039", "EXECUTIVE_REVIEW", "上長評価の最終承認をお願いします",
+                "提出された上長評価を確認してください。", "/executive/evaluations/" + executiveTarget,
+                "local-current-evaluation-executive-review", now);
+    }
+
+    private void ensureNotification(String recipientEmployeeNo, String type, String title, String body,
+            String linkPath, String dedupeKey, LocalDateTime now) {
+        jdbc.sql("""
+                INSERT INTO notifications(public_id,recipient_account_id,type,title,body,link_path,created_at,dedupe_key)
+                SELECT :publicId,a.id,:type,:title,:body,:linkPath,:now,:dedupeKey
+                FROM accounts a JOIN employees e ON e.id=a.employee_id
+                WHERE e.employee_no=:employeeNo
+                  AND NOT EXISTS (SELECT 1 FROM notifications WHERE dedupe_key=:dedupeKey)
+                """).param("publicId", PublicIdGenerator.next()).param("type", type).param("title", title)
+                .param("body", body).param("linkPath", linkPath).param("now", now).param("dedupeKey", dedupeKey)
+                .param("employeeNo", recipientEmployeeNo).update();
+    }
+
+    private String evaluationTargetPublicId(String employeeNo) {
+        return jdbc.sql("""
+                SELECT t.public_id FROM evaluation_targets t JOIN employees e ON e.id=t.employee_id
+                WHERE e.employee_no=:employeeNo
+                """).param("employeeNo", employeeNo).query(String.class).single();
     }
 
     private void ensureTalentWorkflowExamples(LocalDateTime now) {

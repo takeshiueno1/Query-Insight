@@ -42,7 +42,7 @@ export function EmployeeFormPage() {
     }
   }
 
-  return <><div className="page-heading"><div><span className="eyebrow">SCR-005</span><h1>社員{editing ? '編集' : '登録'}</h1><p>社員番号とメールの重複、更新競合をサーバー側でも検証します</p></div></div>
+  return <><div className="page-heading"><div><span className="eyebrow">社員情報</span><h1>社員{editing ? '編集' : '登録'}</h1><p>社員番号とメールの重複、更新競合をサーバー側でも検証します</p></div></div>
     <form className="card form-grid" onSubmit={(event) => void submit(event)}>
       <label>社員番号<span>*</span><input name="employeeNo" required maxLength={30} defaultValue={current?.employeeNo} /></label>
       <label>姓<span>*</span><input name="lastName" required maxLength={50} defaultValue={current?.lastName} /></label>

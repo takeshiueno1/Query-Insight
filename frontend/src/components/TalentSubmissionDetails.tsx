@@ -1,5 +1,6 @@
 import type { TalentMasterChoice, TalentSubmissionPayload, TalentSubmissionType } from '../types'
 import { talentSubmissionTypeLabels } from '../types'
+import { competencyLevelLabel } from '../lib/competency'
 
 export function TalentSubmissionDetails({ type, payload, masters = [] }: {
   type: TalentSubmissionType
@@ -18,13 +19,13 @@ function detailFields(type: TalentSubmissionType, payload: TalentSubmissionPaylo
     case 'SKILL':
       return [
         ['スキル', selectedName],
-        ['習熟度', text(payload.level)],
+        ['習熟状況', competencyLevelLabel(payload.level)],
         ['経験年数', payload.yearsExperience === undefined ? '未設定' : `${payload.yearsExperience}年`],
         ['最終利用日', text(payload.lastUsedOn)],
         ['根拠', text(payload.evidence)],
       ]
     case 'KNOWLEDGE':
-      return [['得意分野', selectedName], ['習熟度', text(payload.level)], ['根拠', text(payload.evidence)]]
+      return [['得意分野', selectedName], ['習熟状況', competencyLevelLabel(payload.level)], ['根拠', text(payload.evidence)]]
     case 'CAREER':
       return [
         ['案件名', text(payload.projectName)],

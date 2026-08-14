@@ -31,6 +31,18 @@ class TalentSubmissionControllerIntegrationTests {
     private final ObjectMapper json = new ObjectMapper();
 
     @Test
+    void missingRequiredTypeQueryReturnsStructuredBadRequest() throws Exception {
+        mvc.perform(get("/api/v1/talent-submissions/me")
+                        .with(employeeJwt("QITEST", "GENERAL")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.detail").value("必須の入力項目を指定してください"))
+                .andExpect(jsonPath("$.fieldErrors[0].field").value("type"))
+                .andExpect(jsonPath("$.fieldErrors[0].code").value("required"))
+                .andExpect(jsonPath("$.traceId").isNotEmpty());
+    }
+
+    @Test
     void employeeCreatesUpdatesListsAndSubmitsOwnSkill() throws Exception {
         String masterPublicId = jdbc.sql("SELECT public_id FROM skill_masters ORDER BY id LIMIT 1")
                 .query(String.class).single();

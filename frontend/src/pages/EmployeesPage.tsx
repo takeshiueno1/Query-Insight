@@ -11,7 +11,7 @@ export function EmployeesPage() {
   const query = useQuery({ queryKey: ['employees', keyword, page], queryFn: () => api<EmployeePage>(`/api/v1/employees?keyword=${encodeURIComponent(keyword)}&page=${page}&size=20`) })
   return (
     <>
-      <div className="page-heading"><div><span className="eyebrow">SCR-003</span><h1>社員検索</h1><p>権限範囲内の社員のみ表示されます</p></div><Link className="primary-button" to="/employees/new">社員登録</Link></div>
+      <div className="page-heading"><div><span className="eyebrow">社員情報</span><h1>社員検索</h1><p>権限範囲内の社員のみ表示されます</p></div><Link className="primary-button" to="/employees/new">社員登録</Link></div>
       <form className="search-card" onSubmit={(event) => { event.preventDefault(); setPage(0); setKeyword(input.trim()) }}>
         <label>キーワード<input value={input} onChange={(event) => setInput(event.target.value)} maxLength={100} placeholder="氏名・社員番号・メール" /></label>
         <button className="primary-button">検索</button>

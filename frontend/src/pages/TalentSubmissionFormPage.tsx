@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { z } from 'zod'
 import { api, ApiError } from '../lib/api'
+import { competencyLevels } from '../lib/competency'
 import { talentCategoryRoutes, talentSubmissionStatusLabels, talentSubmissionTypeLabels, type TalentMasterChoice, type TalentSubmission, type TalentSubmissionPayload, type TalentSubmissionType } from '../types'
 
 type FormValues = {
@@ -175,7 +176,12 @@ export function TalentSubmissionFormPage() {
     <section className="card talent-form">
       <fieldset className="talent-form-fields" disabled={submittedHere}>
       {talentType !== 'CAREER' && <label>{label}<select {...register('masterPublicId')}><option value="">選択してください</option>{masterQuery.data?.map((item) => <option key={item.publicId} value={item.publicId}>{item.name}</option>)}</select></label>}
-      {(talentType === 'SKILL' || talentType === 'KNOWLEDGE') && <label>習熟度（1～5）<input type="number" min={1} max={5} {...register('level')} /></label>}
+      {(talentType === 'SKILL' || talentType === 'KNOWLEDGE') && <label>習熟状況
+        <select aria-label="習熟状況" aria-describedby="competency-level-help" {...register('level')}>
+          {competencyLevels.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
+        <small id="competency-level-help">{competencyLevels.map((item) => `${item.label}：${item.description}`).join('。')}</small>
+      </label>}
       {talentType === 'SKILL' && <><label>経験年数<input type="number" min={0} max={60} step="0.1" {...register('yearsExperience')} /></label><label>最終利用日<input type="date" {...register('lastUsedOn')} /></label></>}
       {(talentType === 'SKILL' || talentType === 'KNOWLEDGE') && <label>根拠<textarea maxLength={1000} {...register('evidence')} /></label>}
       {talentType === 'CAREER' && <><label>案件名<input maxLength={150} {...register('projectName')} /></label><label>業界<input maxLength={100} {...register('industry')} /></label><label>役割<input maxLength={100} {...register('roleName')} /></label><label>開始日<input type="date" {...register('startDate')} /></label><label>終了日<input type="date" {...register('endDate')} /></label><label>概要<textarea maxLength={1000} {...register('summary')} /></label><label>成果<textarea maxLength={1500} {...register('achievements')} /></label><label>利用技術<textarea maxLength={1000} {...register('technologies')} /></label></>}

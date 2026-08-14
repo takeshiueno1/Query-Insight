@@ -37,10 +37,53 @@ describe('TalentSubmissionFormPage', () => {
   afterEach(cleanup)
 
   it.each([
-    ['SKILL', '経験年数'], ['KNOWLEDGE', '習熟度（1～5）'], ['CAREER', '案件名'], ['CERTIFICATION', '取得日'],
+    ['SKILL', '経験年数'], ['KNOWLEDGE', '習熟状況'], ['CAREER', '案件名'], ['CERTIFICATION', '取得日'],
   ])('%sの種類別入力欄を表示する', (type, label) => {
     renderType(type)
     expect(screen.getByLabelText(label)).toBeInTheDocument()
+  })
+
+  it.each(['SKILL', 'KNOWLEDGE'])('%sは習熟状況を自然な5段階で表示し内部数値を見せない', (type) => {
+    renderType(type)
+
+    const select = screen.getByLabelText('習熟状況')
+    expect(select).toHaveTextContent('学習中')
+    expect(select).toHaveTextContent('基礎')
+    expect(select).toHaveTextContent('自立')
+    expect(select).toHaveTextContent('高度')
+    expect(select).toHaveTextContent('指導')
+    expect(select).not.toHaveTextContent(/(^|\s)[1-5](\s|$)/)
+    expect(screen.getByText(/支援を受けながら取り組める/)).toBeInTheDocument()
+    expect(screen.queryByText('習熟度（1～5）')).not.toBeInTheDocument()
+  })
+
+  it('自然な習熟状況を選ぶと既存API契約のlevelへ変換して保存する', async () => {
+    apiMock.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/api/v1/talent-masters/SKILL') {
+        return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      }
+      if (path === '/api/v1/talent-submissions/SKILL' && init?.method === 'POST') {
+        return Promise.resolve({
+          publicId: 'DRAFT-1', logicalPublicId: 'CHAIN-1', type: 'SKILL', revisionNo: 1,
+          status: 'DRAFT', version: 0, payload: JSON.parse(String(init.body)).payload,
+        })
+      }
+      return Promise.resolve([])
+    })
+    renderType('SKILL')
+
+    await screen.findByRole('option', { name: 'Java' })
+    fireEvent.change(screen.getByLabelText('スキル'), { target: { value: 'MASTER-1' } })
+    fireEvent.change(screen.getByLabelText('習熟状況'), { target: { value: '4' } })
+    fireEvent.change(screen.getByLabelText('経験年数'), { target: { value: '2.5' } })
+    fireEvent.change(screen.getByLabelText('最終利用日'), { target: { value: '2026-08-01' } })
+    fireEvent.change(screen.getByLabelText('根拠'), { target: { value: '複雑な案件を自力で解決した' } })
+    fireEvent.click(screen.getByRole('button', { name: '下書き保存' }))
+
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('下書きを保存しました'))
+    const [, request] = apiMock.mock.calls.find(([path, init]) =>
+      path === '/api/v1/talent-submissions/SKILL' && init?.method === 'POST') as [string, RequestInit]
+    expect(JSON.parse(String(request.body)).payload.level).toBe(4)
   })
 
   it.each([
@@ -106,7 +149,7 @@ describe('TalentSubmissionFormPage', () => {
     renderExisting('SKILL', 'DRAFT-1')
 
     expect(await screen.findByDisplayValue('既存の根拠')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('4')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('高度')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '下書き保存' }))
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('下書きを保存しました'))
@@ -393,6 +436,21 @@ describe('TalentSubmissionHistoryPage', () => {
     expect(await screen.findByText('基幹刷新')).toBeInTheDocument()
     expect(screen.getByText('案件名')).toBeInTheDocument()
     expect(screen.queryByText(/projectName|"projectName"|\{/)).not.toBeInTheDocument()
+  })
+
+  it('スキル履歴の習熟状況を自然語で表示し内部数値を見せない', async () => {
+    apiMock.mockImplementation((path: string) => {
+      if (String(path).includes('/history')) return Promise.resolve([historySubmission('SKILL')])
+      if (path === '/api/v1/talent-masters/SKILL') {
+        return Promise.resolve([{ publicId: 'MASTER-1', code: 'SK001', name: 'Java' }])
+      }
+      return Promise.resolve([])
+    })
+    renderHistory()
+
+    expect(await screen.findByText('習熟状況')).toBeInTheDocument()
+    expect(screen.getByText('高度')).toBeInTheDocument()
+    expect(screen.queryByText('習熟度')).not.toBeInTheDocument()
   })
 })
 

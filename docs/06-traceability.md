@@ -66,27 +66,31 @@
 | 添付検査と並行状態 | `TalentAttachmentServiceIntegrationTests`, `TalentAttachmentControllerIntegrationTests`, `ClamAvFileScanClientTests` | `TalentSubmissionPages.test.tsx` |
 | AI/PROTOTYPEとPII・判断禁止 | `OllamaAnalysisClientTests`, `AiAnalysisFallbackIntegrationTests`, `PrototypeAnalysisServiceTests` | `DashboardPage.test.tsx` |
 | 通知count・既読同期 | `NotificationCountIntegrationTests` | `AppLayout.test.tsx`, `NotificationsPage.test.tsx` |
+| local通知のrecipient・権限scope・遷移先 | `LocalNotificationInitializerIntegrationTests` | `NotificationsPage.test.tsx` |
 | マスタ申請2項目・旧互換 | `MasterRequestIntegrationTests` | `MasterRequestsPage.test.tsx` |
+| 必須query parameterの構造化400 | `GlobalExceptionHandlerTests`, `TalentSubmissionControllerIntegrationTests` | - |
+| 到達可能画面の日本語見出し・習熟状況ラベル | - | `AppUserVisibleLabels.test.tsx`, `TalentCategoryPages.test.tsx`, `TalentSubmissionPages.test.tsx`, `ManagerTalentApprovalPages.test.tsx` |
 | Flyway V1〜V9・V8/V9 | `EvaluationApprovalSchemaIntegrationTests`, `ProfileStatusSchemaIntegrationTests`, `TalentSubmissionSchemaIntegrationTests` | - |
 
-## 現在確認されている利用者向け旧表記・互換コード
+## 利用者向け旧表記の修正状況と互換コード
 
-次は2026-08-14の静的検索で残存を確認した項目であり、解消済みとは扱わない。
+2026-08-14の製品修正round 1で、現行`App.tsx`から到達できる画面とlocal sampleを再確認した。
 
-- `frontend/src/pages/AiAnalysisPage.tsx` の直接route `/analysis`、`AuditPage.tsx` の `/audit`、社員系画面および`FeaturePage`利用routeには、受領資料の画面IDをeyebrow表示する実装が残る。
-- `frontend/src/pages/TalentSubmissionFormPage.tsx` はスキル・得意分野の入力ラベルに「習熟度（1～5）」を表示する。
+- `frontend/src/pages/AiAnalysisPage.tsx`、`AuditPage.tsx`、社員系画面、`NotificationsPage.tsx`、`FeaturePage.tsx`利用routeの利用者向け画面IDを、用途を表す日本語見出しへ置換した。`AppUserVisibleLabels.test.tsx`は実際のmount routeで`SCR-*`非表示を検証する。
+- `frontend/src/pages/TalentSubmissionFormPage.tsx`のスキル・得意分野入力は「習熟状況」とし、`学習中・基礎・自立・高度・指導`を内部値1〜5へ対応付ける。申請詳細・承認詳細・プロフィールも同じ日本語ラベルを表示し、上長評価のS〜Fとは別の尺度として扱う。
 - `frontend/src/pages/EvaluationPage.tsx` は旧本人入力文言を含むが、`App.tsx`からはmountされず、`/evaluations/self`は本人向け確定結果へ転送される。
 - `frontend/src/pages/TalentProfilePage.tsx` は旧統合プロフィール表記を含むが、現行の一般メニューは`/skills`、`/careers`、`/certifications`を使用する。
-- `backend/src/main/java/com/query/insight/config/LocalDataInitializer.java` がlocal sampleへ旧本人評価の通知文言を登録するため、一般・直属上長の`/notifications`から到達できる。
+- `backend/src/main/java/com/query/insight/config/LocalDataInitializer.java`の旧本人評価通知seedは削除した。`LocalRealisticDataInitializer.java`は一般本人の確定結果、直属上長の最終承認差戻し、全社役職者の最終承認対象を、各recipientのrole/scopeに合うroute付きでseedし、旧2件のdedupe keyを局所削除する。
 - `backend/src/main/java/com/query/insight/config/LocalRealisticDataInitializer.java` は旧本人評価のlevel/evidenceを互換データとして生成する。APIの上長・経営詳細には旧fieldが残るが、現行の`ManagerEvaluationDetailPage`と`ExecutiveEvaluationDetailPage`は描画しない。
 
-これらの製品コード修正はTask 11の文書・runtime担当範囲に含めず、別の修正taskでroute到達性と期待文言を確定してから変更する。
+未mountの`EvaluationPage.tsx`と`TalentProfilePage.tsx`は互換コードとして残す。現行routeから到達不能であり、削除の影響範囲を本修正だけでは確定できないため削除していない。
 
 ## 実動作と残る確認gate
 
+- 2026-08-14の製品修正round 1では、Backend 194件、Frontend 14 files・124件、Frontend lint・buildが成功した。追加したfocused検証はBackend 7件、Frontend 52件が成功した。
 - 2026-08-14のTask 11静的検証は、Backend 190件、Frontend 13 files・108件、lint、build、`npm audit --audit-level=moderate`（脆弱性0件）、Compose config、diff check、差分秘密情報scanが成功した。
 - Docker Desktop daemonはWSLの`HCS_E_CONNECTION_TIMEOUT`と`docker-desktop-data`異常終了によりAPI 500のまま復旧せず、Compose/PostgreSQL/ClamAV/Ollamaは起動できなかった。volume・image・既存データの削除やWSL全体停止は行っていない。したがってPostgreSQLでのFlyway V1〜V9、V8/V9、添付`SKIP LOCKED`、上長評価並行競合、ClamAV、Ollama成功modeは未確認である。
 - worktreeのH2代替runtimeではFlyway V1〜V9を適用し、health、3権限のlogin、本人dashboard/profile/通知/4種類申請、上長一覧・詳細、経営一覧・確定詳細、確定本人結果をHTTP確認した。AI無効時の保存結果は`PROTOTYPE`だった。これはPostgreSQL/Compose実動作の代替証明ではない。
-- malformed requestの`GET /api/v1/talent-submissions/me`（必須`type`なし）が400ではなく500 `INTERNAL_ERROR`になることを確認した。現行Frontendは常に`type`を付けるため通常導線は通るが、別の製品修正対象である。
+- `GET /api/v1/talent-submissions/me`の必須`type`欠落は、`MissingServletRequestParameterException`だけを捕捉して`VALIDATION_ERROR`、field `type`、code `required`の構造化400を返すよう修正した。予期しない例外の500処理は維持する。`TalentSubmissionControllerIntegrationTests`で実endpoint、`GlobalExceptionHandlerTests`で共通required query処理を検証する。
 - 実ブラウザの視覚・操作確認は未実施である。主担当がdesktop/390px、loading/error、基本キーボードfocus、水平overflow、glass fallback、一般・直属上長・全社役職者の通し操作を確認するまで、ブラウザ確認済みとしない。
 - 本MVPは詳細設計書の全76 APIを完了した本番リリース版ではない。上表の`画面骨格`・`未実装`と、[未決事項](99-open-questions.md)に残る本番運用条件を別途完了する必要がある。

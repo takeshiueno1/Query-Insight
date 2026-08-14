@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { api } from '../lib/api'
+import { competencyLevelLabel } from '../lib/competency'
 import { talentVerificationStatusLabels, type TalentProfile } from '../types'
 
 export function TalentProfileLoader({ employeePublicId, errorMessage, children }: {
@@ -28,7 +29,7 @@ export function TalentProfilePanel({ employeePublicId }: { employeePublicId: str
 
 export function SkillSection({ skills }: { skills: TalentProfile['skills'] }) {
   return <section className="card">
-      <div className="card-header"><div><h2>スキル</h2><p>実務経験と根拠に基づく習熟度</p></div><strong>{skills.length}件</strong></div>
+      <div className="card-header"><div><h2>スキル</h2><p>実務経験と根拠に基づく習熟状況</p></div><strong>{skills.length}件</strong></div>
       <div className="tag-grid">{skills.map((skill) => <article key={skill.code}>
         <div><strong>{skill.name}</strong><span>{skill.category}</span></div>
         <Level value={skill.level} />
@@ -67,5 +68,5 @@ export function CertificationSection({ certifications }: { certifications: Talen
 }
 
 function Level({ value }: { value: number }) {
-  return <span className="level-meter" aria-label={`レベル${value}`}>{[1, 2, 3, 4, 5].map((level) => <i key={level} className={level <= value ? 'filled' : ''} />)}</span>
+  return <span className="level-meter" aria-label={`習熟状況: ${competencyLevelLabel(value)}`}>{[1, 2, 3, 4, 5].map((level) => <i key={level} className={level <= value ? 'filled' : ''} />)}</span>
 }

@@ -7,7 +7,7 @@ export function AiAnalysisPage() {
   const problem = analysis.error instanceof ApiError ? analysis.error.problem : null
 
   return <>
-    <div className="page-heading"><div><span className="eyebrow">SCR-012</span><h1>AI能力分析</h1><p>評価、スキル、得意分野、業務経験から、育成のための示唆を作成します</p></div></div>
+    <div className="page-heading"><div><span className="eyebrow">能力分析</span><h1>AI能力分析</h1><p>評価、スキル、得意分野、業務経験から、育成のための示唆を作成します</p></div></div>
     <section className="card analysis-consent">
       <div><h2>ローカルAIへ渡す情報</h2><p>評価期間・能力軸・根拠、スキル、得意分野、直近の業務経験、確認済み資格を、同じPC内のOllamaへ渡します。外部AIサービスへは送信しません。また、氏名、社員番号、メールアドレス、部署名、公開IDはAI入力に含めません。</p></div>
       <button className="primary-button" disabled={analysis.isPending} onClick={() => analysis.mutate()}>{analysis.isPending ? '分析中…' : 'AI分析を実行'}</button>
