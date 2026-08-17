@@ -68,4 +68,3 @@
 - Backend: ローカル初期化後の56社員・56アカウント、追加5名のログイン、権限・直属関係、保有情報件数、再実行冪等性を統合テストで検証する。
 - 全Frontend test/lint/build、全Backend test、`docker compose config` を実行する。
 - Dockerが利用可能ならPostgreSQL Composeで起動し、ログイン、ベル、日時、追加社員の主要画面を実HTTP・ブラウザで確認する。利用不能なら環境制約として明記し、H2 PostgreSQL modeの結果と分離する。
-

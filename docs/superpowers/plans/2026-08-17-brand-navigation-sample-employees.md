@@ -93,4 +93,3 @@
 - [ ] **Step 2: Run full verification** — Backend全test、Frontend全test/lint/build、`docker compose config`、`git diff --check`を実行する。
 - [ ] **Step 3: Runtime verification** — Docker利用可能ならPostgreSQL Composeとブラウザ390pxを確認し、利用不能ならH2フォールバックと環境障害を分離して記録する。
 - [ ] **Step 4: Review and commit scoped files** — 秘密情報、差分、未追跡ファイルを確認し、日本語commit、pushなしで完了する。
-
