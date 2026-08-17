@@ -15,7 +15,10 @@ describe('権限別ナビゲーション', () => {
     useAuthMock.mockReset()
     apiMock.mockReset().mockResolvedValue({ unreadCount: 0 })
   })
-  afterEach(cleanup)
+  afterEach(() => {
+    vi.useRealTimers()
+    cleanup()
+  })
 
   it.each([
     ['一般', user('GENERAL', 'SELF'), [], ['社員検索', '上長評価入力', 'タレント承認', '最終承認', '監査']],
@@ -32,9 +35,12 @@ describe('権限別ナビゲーション', () => {
   it('全利用者の主要メニューを用途別の日本語名で表示する', () => {
     renderLayout(user('GENERAL', 'SELF'))
 
-    for (const label of ['ダッシュボード', 'スキル', '業務経歴', '資格', '上長評価', '通知', 'マスタ申請']) {
+    for (const label of ['ダッシュボード', 'スキル', '業務経歴', '資格', '上長評価', 'マスタ申請']) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument()
     }
+    expect(screen.getByRole('navigation', { name: '主要メニュー' })).not.toHaveTextContent('通知')
+    expect(screen.getByRole('link', { name: '通知を開く' })).toHaveAttribute('href', '/notifications')
+    expect(screen.getByTestId('nav-icon-certification')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'スキル' })).toHaveAttribute('href', '/skills')
     expect(screen.getByRole('link', { name: '業務経歴' })).toHaveAttribute('href', '/careers')
     expect(screen.getByRole('link', { name: '資格' })).toHaveAttribute('href', '/certifications')
@@ -57,7 +63,7 @@ describe('権限別ナビゲーション', () => {
   it('正式ロゴと日本語パンくずを表示し内部pathを見せない', () => {
     renderLayout(user('GENERAL', 'SELF'), '/skills/edit')
 
-    expect(screen.getByRole('img', { name: 'QUERY INSIGHT' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'QUERY INSIGHT' }).tagName).toBe('svg')
     expect(screen.getByText('スキル', { selector: '.breadcrumb' })).toBeInTheDocument()
     expect(screen.queryByText(/SKILLS\/EDIT/)).not.toBeInTheDocument()
   })
@@ -78,6 +84,16 @@ describe('権限別ナビゲーション', () => {
     }
     const badge = await screen.findByLabelText(`未読通知${unreadCount}件`)
     expect(badge).toHaveTextContent(visibleCount)
+  })
+
+  it('右上に日本時間の現在日時を表示する', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-17T12:00:00.000Z'))
+    renderLayout(user('GENERAL', 'SELF'))
+
+    const clock = screen.getByText('2026/8/17 21:00')
+    expect(clock.tagName).toBe('TIME')
+    vi.useRealTimers()
   })
 
   it('同じQueryClientで利用者が切り替わっても前利用者の未読数を表示しない', async () => {

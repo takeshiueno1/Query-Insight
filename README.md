@@ -16,7 +16,7 @@
 - 直属上長によるタレント申請の1件承認と、承認済み正式プロフィールへの原子的な反映
 - 種類・説明の2項目によるマスタ追加申請と、`ADMIN/ALL`による承認・差戻し。新形式の承認はマスタを自動生成しない
 - PDF/JPEG/PNGの実体検証、5MB・3件制限、ClamAV検査、PENDINGを含む再検査状態、閲覧スコープ制御
-- PostgreSQL向けFlywayスキーマ、50名分の組織・6能力軸・スキル・知識・業務経歴・資格を含むローカル専用サンプルデータ
+- PostgreSQL向けFlywayスキーマ、55名分の組織・6能力軸・スキル・知識・業務経歴・資格を含むローカル専用サンプルデータ
 - OllamaとQwen3によるローカル能力分析と、接続不能・無効時のルールベース「プロトタイプ分析」（API利用料・外部送信なし）
 - 総当たり・AI過負荷のレート制限、Token再利用検知、CSP、Origin検証、依存関係監査
 
@@ -55,7 +55,7 @@ docker compose up --build backend frontend
 | 一般（簡易動作確認） | `ueno` | `5050Rock` |
 | 役職者（全社・社長） | `qi0039@query.local` | `QueryInsight2026` |
 
-これらはローカル用の架空データです。50名のリアリティデータに加え、簡易動作確認専用の1名を登録しています。承認待ち・上長差戻し・確定済みの評価例も含みます。`QI0006`～`QI0050` は `qi0006@query.local` のように社員番号を小文字にしたログインIDと同じローカルパスワードで確認できます。`ueno` はローカル専用アカウントであり、本番環境には作成されません。詳細は[50名リアリティデータ](docs/08-realistic-sample-data.md)を参照してください。本番環境では `local` プロファイルを使用せず、RSA秘密鍵・公開鍵を `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` で設定してください。
+これらはローカル用の架空データです。55名のリアリティデータに加え、簡易動作確認専用の1名を登録しています。`QI0051` は追加4名の直属上長です。`QI0006`～`QI0055` は `qi0006@query.local` のように社員番号を小文字にしたログインIDと同じローカルパスワードで確認できます。`ueno` はローカル専用アカウントであり、本番環境には作成されません。詳細は[55名リアリティデータ](docs/08-realistic-sample-data.md)を参照してください。本番環境では `local` プロファイルを使用せず、RSA秘密鍵・公開鍵を `JWT_PRIVATE_KEY` / `JWT_PUBLIC_KEY` で設定してください。
 
 ## ローカルAI分析
 
@@ -118,7 +118,7 @@ npm audit --audit-level=moderate
 - [解析レポート](docs/05-analysis-report.md)
 - [要件・画面・実装トレーサビリティ](docs/06-traceability.md)
 - [無料公開版デプロイ手順](docs/07-free-deployment.md)
-- [50名リアリティデータ](docs/08-realistic-sample-data.md)
+- [55名リアリティデータ](docs/08-realistic-sample-data.md)
 - [セキュリティ対策](docs/09-security-measures.md)
 - [未決事項](docs/99-open-questions.md)
 

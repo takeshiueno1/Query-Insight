@@ -26,7 +26,10 @@ describe('LoginPage password policy', () => {
   it('正式ロゴとログイン操作だけを表示する', () => {
     renderLogin()
 
-    expect(screen.getByRole('img', { name: 'QUERY INSIGHT' })).toBeInTheDocument()
+    const logo = screen.getByRole('img', { name: 'QUERY INSIGHT' })
+    expect(logo).toBeInTheDocument()
+    expect(logo.tagName).toBe('svg')
+    expect(document.querySelector('.login-logo')).toHaveClass('brand-plate')
     expect(screen.getByRole('heading', { name: 'ログイン' })).toBeInTheDocument()
     expect(screen.queryByText(/社員の経験と能力/)).not.toBeInTheDocument()
     expect(screen.queryByText(/スキル・経歴・評価を一つに/)).not.toBeInTheDocument()

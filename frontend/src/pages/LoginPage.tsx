@@ -24,7 +24,7 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <section className="login-panel" aria-labelledby="login-title">
-        <div className="login-logo"><BrandLogo /></div>
+        <div className="login-logo brand-plate"><BrandLogo /></div>
         <div className="login-heading"><h1 id="login-title">ログイン</h1><p>社員番号またはメールアドレス</p></div>
         <form onSubmit={handleSubmit(async (values) => {
           setError(null)

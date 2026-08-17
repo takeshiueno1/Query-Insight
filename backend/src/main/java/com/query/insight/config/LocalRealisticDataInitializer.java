@@ -32,13 +32,15 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
             "加藤", "吉田", "山本", "松本", "井上", "木村", "林", "清水", "斎藤", "山口",
             "森", "池田", "橋本", "阿部", "石川", "山崎", "中島", "前田", "藤田", "小川",
             "後藤", "岡田", "長谷川", "村上", "近藤", "石井", "坂本", "遠藤", "青木", "藤井",
-            "西村", "福田", "太田", "三浦", "藤原", "岡本", "松田", "中川", "中野", "原田");
+            "西村", "福田", "太田", "三浦", "藤原", "岡本", "松田", "中川", "中野", "原田",
+            "上原", "宮本", "野口", "菅原", "平野");
     private static final List<String> FIRST_NAMES = List.of(
             "太郎", "花子", "健", "葵", "直樹", "美咲", "大輔", "結衣", "拓海", "陽菜",
             "翔太", "彩香", "悠斗", "七海", "亮", "麻衣", "蓮", "真由", "航", "里奈",
             "陸", "遥", "誠", "愛", "颯太", "優奈", "和也", "千尋", "雄大", "未来",
             "健太", "菜々子", "達也", "沙織", "一樹", "恵", "駿", "由佳", "浩平", "明日香",
-            "俊介", "香織", "学", "梨沙", "智也", "美月", "祐介", "琴音", "隆", "瑞希");
+            "俊介", "香織", "学", "梨沙", "智也", "美月", "祐介", "琴音", "隆", "瑞希",
+            "雅人", "奈緒", "海斗", "美優", "修平");
 
     private static final Map<String, List<String>> DEPARTMENT_SKILLS = Map.of(
             "DEV", List.of("JAVA", "SPRING", "REACT", "TYPESCRIPT", "POSTGRESQL", "DOCKER", "AWS", "TEST_AUTOMATION"),
@@ -382,7 +384,7 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
 
     private List<EmployeeSeed> employeeSeeds() {
         List<EmployeeSeed> result = new ArrayList<>();
-        for (int number = 1; number <= 50; number++) {
+        for (int number = 1; number <= 55; number++) {
             String employeeNo = "QI%04d".formatted(number);
             String department = department(number);
             String managerNo = managerNo(number, department);
@@ -398,12 +400,13 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
                     email, department, managerNo, position(number, department),
                     LocalDate.of(2013 + number % 12, 1 + number % 12, 1 + number % 24)));
         }
-        result.add(new EmployeeSeed(51, "QITEST", "テスト", "ユーザー", "test@query.local", "DEV", "QI0002",
+        result.add(new EmployeeSeed(56, "QITEST", "テスト", "ユーザー", "test@query.local", "DEV", "QI0002",
                 "ローカル動作確認ユーザー", LocalDate.of(2026, 7, 1)));
         return result;
     }
 
     private String department(int number) {
+        if (number >= 51) return "DEV";
         if (number == 1) return "DEV";
         if (number <= 20) return number >= 17 ? "DATA" : "DEV";
         if (number <= 27) return "PRODUCT";
@@ -416,6 +419,8 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
 
     private String managerNo(int number, String department) {
         if (number == 1) return null;
+        if (number == 51) return "QI0001";
+        if (number >= 52) return "QI0051";
         if (number == 2 || number == 4 || number == 5 || number == 35 || number == 40) return "QI0001";
         if (number == 17) return "QI0006";
         if (number == 48) return "QI0005";
@@ -734,7 +739,7 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
     }
 
     private boolean isManager(int number) {
-        return Set.of(1, 2, 4, 5, 6, 17, 18, 35, 40, 48).contains(number);
+        return Set.of(1, 2, 4, 5, 6, 17, 18, 35, 40, 48, 51).contains(number);
     }
 
     private String departmentName(String code) {

@@ -5,21 +5,22 @@ import { api } from '../lib/api'
 import type { DataScope, Role } from '../types'
 import { BrandLogo } from './BrandLogo'
 import { NotificationBadge } from './NotificationBadge'
+import { NavIcon, type NavIconName } from './NavIcon'
+import { LiveDateTime } from './LiveDateTime'
 
-type NavItem = { to: string; label: string; icon: string; role?: Role; scope?: DataScope }
+type NavItem = { to: string; label: string; icon: NavIconName; role?: Role; scope?: DataScope }
 const nav: NavItem[] = [
-  { to: '/', label: 'ダッシュボード', icon: '⌂' },
-  { to: '/employees', label: '社員検索', icon: '⌕', role: 'OFFICER' },
-  { to: '/skills', label: 'スキル', icon: '◇' },
-  { to: '/careers', label: '業務経歴', icon: '▱' },
-  { to: '/certifications', label: '資格', icon: '□' },
-  { to: '/evaluations/manager-result', label: '上長評価', icon: '✓' },
-  { to: '/evaluations/manager', label: '上長評価入力', icon: '◎', role: 'OFFICER', scope: 'SUBORDINATES' },
-  { to: '/approvals/talent', label: 'タレント承認', icon: '▣', role: 'OFFICER', scope: 'SUBORDINATES' },
-  { to: '/executive/evaluations', label: '最終承認', icon: '◆', role: 'OFFICER', scope: 'ALL' },
-  { to: '/notifications', label: '通知', icon: '●' },
-  { to: '/master-requests', label: 'マスタ申請', icon: '＋' },
-  { to: '/audit', label: '監査', icon: '▤', role: 'ADMIN' },
+  { to: '/', label: 'ダッシュボード', icon: 'dashboard' },
+  { to: '/employees', label: '社員検索', icon: 'employees', role: 'OFFICER' },
+  { to: '/skills', label: 'スキル', icon: 'skill' },
+  { to: '/careers', label: '業務経歴', icon: 'career' },
+  { to: '/certifications', label: '資格', icon: 'certification' },
+  { to: '/evaluations/manager-result', label: '上長評価', icon: 'evaluation' },
+  { to: '/evaluations/manager', label: '上長評価入力', icon: 'evaluation', role: 'OFFICER', scope: 'SUBORDINATES' },
+  { to: '/approvals/talent', label: 'タレント承認', icon: 'approval', role: 'OFFICER', scope: 'SUBORDINATES' },
+  { to: '/executive/evaluations', label: '最終承認', icon: 'approval', role: 'OFFICER', scope: 'ALL' },
+  { to: '/master-requests', label: 'マスタ申請', icon: 'request' },
+  { to: '/audit', label: '監査', icon: 'audit', role: 'ADMIN' },
 ]
 
 const roleNames: Record<Role, string> = { GENERAL: '一般', OFFICER: '役職者', ADMIN: '管理者' }
@@ -71,7 +72,7 @@ export function AppLayout() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="sidebar-logo"><BrandLogo compact /></div>
+        <div className="sidebar-logo brand-plate"><BrandLogo compact /></div>
         <nav aria-label="主要メニュー">
           {nav.filter((item) => {
             if (!item.role) return true
@@ -79,8 +80,7 @@ export function AppLayout() {
             return user?.roles.includes(item.role) && (!item.scope || user.scopes.includes(item.scope))
           }).map((item) => (
             <NavLink key={item.to} to={item.to} end={item.to === '/'} className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-              <span aria-hidden="true">{item.icon}</span><span className="nav-label">{item.label}</span>
-              {item.to === '/notifications' && <NotificationBadge count={unreadCount} />}
+              <NavIcon name={item.icon} /><span className="nav-label">{item.label}</span>
             </NavLink>
           ))}
         </nav>
@@ -89,7 +89,7 @@ export function AppLayout() {
       <section className="main-column">
         <header className="topbar">
           <span className="breadcrumb">{pageLabel(location.pathname)}</span>
-          <div className="top-actions"><NavLink to="/notifications" aria-label="通知を開く"><span aria-hidden="true">●</span></NavLink><button className="ghost-button" onClick={() => void logout()}>ログアウト</button></div>
+          <div className="top-actions"><LiveDateTime /><NavLink className="notification-link" to="/notifications" aria-label="通知を開く"><NavIcon name="notification" />{unreadCount > 0 && <NotificationBadge count={unreadCount} />}</NavLink><button className="ghost-button" onClick={() => void logout()}>ログアウト</button></div>
         </header>
         <main className="content"><Outlet /></main>
       </section>
