@@ -29,9 +29,10 @@ public class MasterRequestController {
     @PostMapping("/api/v1/master-requests")
     MasterRequestService.Row create(@AuthenticationPrincipal Jwt jwt, @RequestBody JsonNode request,
             HttpServletRequest servletRequest) {
-        requireOnly(request, Set.of("type", "payload"));
-        return service.create(account(jwt), type(request.path("type").asText()), request.path("payload"),
-                traceId(servletRequest));
+        requireOnly(request, Set.of("type", "description"));
+        String type = request.path("type").isTextual() ? request.path("type").asText() : null;
+        String description = request.path("description").isTextual() ? request.path("description").asText() : null;
+        return service.create(account(jwt), type, description, traceId(servletRequest));
     }
 
     @GetMapping("/api/v1/master-requests/me")
@@ -62,14 +63,6 @@ public class MasterRequestController {
         String reason = request.path("reason").isTextual() ? request.path("reason").asText() : null;
         return service.returnRequest(account(jwt), roles(jwt), publicId, version(request), reason,
                 traceId(servletRequest));
-    }
-
-    private static MasterRequestService.Type type(String value) {
-        try {
-            return MasterRequestService.Type.valueOf(value);
-        } catch (IllegalArgumentException exception) {
-            throw invalid();
-        }
     }
 
     private static MasterRequestService.Status status(String value) {

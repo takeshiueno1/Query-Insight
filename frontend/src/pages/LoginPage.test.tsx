@@ -23,6 +23,19 @@ describe('LoginPage password policy', () => {
   beforeEach(() => loginMock.mockReset().mockResolvedValue(undefined))
   afterEach(cleanup)
 
+  it('正式ロゴとログイン操作だけを表示する', () => {
+    renderLogin()
+
+    const logo = screen.getByRole('img', { name: 'QUERY INSIGHT' })
+    expect(logo).toBeInTheDocument()
+    expect(logo.tagName).toBe('svg')
+    expect(document.querySelector('.login-logo')).toHaveClass('brand-plate')
+    expect(screen.getByRole('heading', { name: 'ログイン' })).toBeInTheDocument()
+    expect(screen.queryByText(/社員の経験と能力/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/スキル・経歴・評価を一つに/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^QI$/)).not.toBeInTheDocument()
+  })
+
   it('半角英数字8文字でログイン処理を呼ぶ', async () => {
     renderLogin()
     submit('5050Rock')

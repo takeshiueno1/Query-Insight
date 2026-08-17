@@ -4,6 +4,7 @@ import com.query.insight.audit.AuditService;
 import com.query.insight.common.ApiException;
 import com.query.insight.common.PublicIdGenerator;
 import com.query.insight.notification.NotificationService;
+import com.query.insight.status.ProfileStatusService;
 import com.query.insight.talent.TalentPayloads.Payload;
 import com.query.insight.talent.TalentSubmission.Action;
 import com.query.insight.talent.TalentSubmission.Status;
@@ -25,13 +26,15 @@ public class TalentSubmissionService {
     private final TalentSubmissionRepository repository;
     private final NotificationService notifications;
     private final AuditService audit;
+    private final ProfileStatusService profileStatuses;
 
     public TalentSubmissionService(JdbcClient jdbc, TalentSubmissionRepository repository,
-            NotificationService notifications, AuditService audit) {
+            NotificationService notifications, AuditService audit, ProfileStatusService profileStatuses) {
         this.jdbc = jdbc;
         this.repository = repository;
         this.notifications = notifications;
         this.audit = audit;
+        this.profileStatuses = profileStatuses;
     }
 
     public List<TalentSubmissionRepository.Row> mine(String employeePublicId, Type type) {
@@ -122,7 +125,7 @@ public class TalentSubmissionService {
     @Transactional
     public TalentSubmissionRepository.Row submit(String employeePublicId, String actorAccountPublicId,
             String submissionPublicId, long version, String traceId) {
-        var current = ownSubmission(employeePublicId, submissionPublicId);
+        var current = ownSubmissionForUpdate(employeePublicId, submissionPublicId);
         TalentSubmission.requireTransition(current.status(), Action.SUBMIT);
         validate(repository.payload(current));
         requireAttachmentsClean(current.id());
@@ -142,17 +145,23 @@ public class TalentSubmissionService {
     @Transactional
     public TalentSubmissionRepository.Row approve(String managerEmployeePublicId, String managerAccountPublicId,
             String submissionPublicId, long version, String traceId) {
-        var current = managerSubmission(managerEmployeePublicId, submissionPublicId);
+        var current = managerSubmissionForUpdate(managerEmployeePublicId, submissionPublicId);
         TalentSubmission.requireTransition(current.status(), Action.APPROVE);
+        if (current.version() != version) throw optimisticConflict();
         long actorId = accountId(managerAccountPublicId);
         Instant now = Instant.now();
-        applyOfficial(current, repository.payload(current), now);
+        jdbc.sql("SELECT id FROM employees WHERE id=:employeeId FOR UPDATE")
+                .param("employeeId", current.employeeId()).query(Long.class).single();
+        Payload payload = repository.payload(current);
+        requireOfficialAvailable(current, payload);
+        applyOfficial(current, payload, now);
         for (var predecessor : repository.approvedPredecessors(current)) {
             repository.markSuperseded(predecessor.id(), now);
             recordEvent(predecessor.id(), actorId, "SUPERSEDE", Status.APPROVED, Status.SUPERSEDED,
                     null, traceId, now);
         }
         var approved = repository.markApproved(current.id(), version, actorId, now);
+        profileStatuses.recalculate(current.employeeId());
         recordEvent(current.id(), actorId, "APPROVE", Status.SUBMITTED, Status.APPROVED, null, traceId, now);
         notifications.notifyEmployee(current.employeeId(), "TALENT_APPROVED", "タレント申請が承認されました",
                 "申請内容が正式なタレント情報へ反映されました。", "/talent/" + current.logicalPublicId() + "/history",
@@ -190,6 +199,38 @@ public class TalentSubmissionService {
             case TalentPayloads.CareerPayload career -> applyCareer(row, career, now);
             case TalentPayloads.CertificationPayload certification -> applyCertification(row, certification, now);
         }
+    }
+
+    private void requireOfficialAvailable(TalentSubmissionRepository.Row row, Payload payload) {
+        if (row.baseRecordVersion() != null) return;
+        int existing = switch (payload) {
+            case TalentPayloads.SkillPayload skill -> jdbc.sql("""
+                    SELECT COUNT(*) FROM employee_skills official
+                    JOIN skill_masters master ON master.id=official.skill_id
+                    WHERE official.employee_id=:employeeId AND master.public_id=:masterPublicId
+                    """).param("employeeId", row.employeeId()).param("masterPublicId", skill.masterPublicId())
+                    .query(Integer.class).single();
+            case TalentPayloads.KnowledgePayload knowledge -> jdbc.sql("""
+                    SELECT COUNT(*) FROM employee_knowledge official
+                    JOIN knowledge_masters master ON master.id=official.knowledge_id
+                    WHERE official.employee_id=:employeeId AND master.public_id=:masterPublicId
+                    """).param("employeeId", row.employeeId()).param("masterPublicId", knowledge.masterPublicId())
+                    .query(Integer.class).single();
+            case TalentPayloads.CertificationPayload certification -> jdbc.sql("""
+                    SELECT COUNT(*) FROM employee_certifications official
+                    JOIN certification_masters master ON master.id=official.certification_id
+                    WHERE official.employee_id=:employeeId AND master.public_id=:masterPublicId
+                    """).param("employeeId", row.employeeId())
+                    .param("masterPublicId", certification.masterPublicId())
+                    .query(Integer.class).single();
+            case TalentPayloads.CareerPayload career -> jdbc.sql("""
+                    SELECT COUNT(*) FROM career_histories
+                    WHERE employee_id=:employeeId AND project_name=:projectName AND start_date=:startDate
+                    """).param("employeeId", row.employeeId()).param("projectName", career.projectName())
+                    .param("startDate", career.startDate()).query(Integer.class).single();
+        };
+        if (existing > 0) throw new ApiException(HttpStatus.CONFLICT, "TALENT_OFFICIAL_CONFLICT",
+                "同じタレント情報が既に登録されています。申請一覧を再読み込みしてください");
     }
 
     private void applySkill(TalentSubmissionRepository.Row row, TalentPayloads.SkillPayload payload, Instant now) {
@@ -350,6 +391,32 @@ public class TalentSubmissionService {
                 .filter(row -> row.employeeId() == employeeId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TALENT_SUBMISSION_NOT_FOUND",
                         "対象の申請が見つかりません"));
+    }
+
+    private TalentSubmissionRepository.Row managerSubmissionForUpdate(String managerEmployeePublicId,
+            String submissionPublicId) {
+        return repository.findForManagerForUpdate(submissionPublicId, managerEmployeePublicId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TALENT_SUBMISSION_NOT_FOUND",
+                        "対象の申請が見つかりません"));
+    }
+
+    private ApiException optimisticConflict() {
+        return new ApiException(HttpStatus.CONFLICT, "OPTIMISTIC_LOCK_CONFLICT",
+                "他の利用者が更新しました。再読み込みしてください");
+    }
+
+    private TalentSubmissionRepository.Row ownSubmissionForUpdate(String employeePublicId,
+            String submissionPublicId) {
+        long employeeId = employeeId(employeePublicId);
+        jdbc.sql("""
+                SELECT id FROM talent_submissions
+                WHERE public_id=:submissionPublicId AND employee_id=:employeeId
+                FOR UPDATE
+                """).param("submissionPublicId", submissionPublicId).param("employeeId", employeeId)
+                .query(Long.class).optional()
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "TALENT_SUBMISSION_NOT_FOUND",
+                        "対象の申請が見つかりません"));
+        return repository.findByPublicId(submissionPublicId).orElseThrow();
     }
 
     private void validate(Payload payload) {

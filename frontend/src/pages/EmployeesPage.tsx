@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import type { EmployeePage } from '../types'
+import { employmentStatusLabels, type EmployeePage } from '../types'
 
 export function EmployeesPage() {
   const [input, setInput] = useState('')
@@ -11,7 +11,7 @@ export function EmployeesPage() {
   const query = useQuery({ queryKey: ['employees', keyword, page], queryFn: () => api<EmployeePage>(`/api/v1/employees?keyword=${encodeURIComponent(keyword)}&page=${page}&size=20`) })
   return (
     <>
-      <div className="page-heading"><div><span className="eyebrow">SCR-003</span><h1>社員検索</h1><p>権限範囲内の社員のみ表示されます</p></div><Link className="primary-button" to="/employees/new">社員登録</Link></div>
+      <div className="page-heading"><div><span className="eyebrow">社員情報</span><h1>社員検索</h1><p>権限範囲内の社員のみ表示されます</p></div><Link className="primary-button" to="/employees/new">社員登録</Link></div>
       <form className="search-card" onSubmit={(event) => { event.preventDefault(); setPage(0); setKeyword(input.trim()) }}>
         <label>キーワード<input value={input} onChange={(event) => setInput(event.target.value)} maxLength={100} placeholder="氏名・社員番号・メール" /></label>
         <button className="primary-button">検索</button>
@@ -28,4 +28,4 @@ export function EmployeesPage() {
   )
 }
 
-function Status({ value }: { value: string }) { return <span className={`status ${value === 'ACTIVE' ? 'success' : 'warning'}`}>{value}</span> }
+function Status({ value }: { value: string }) { return <span className={`status ${value === 'ACTIVE' ? 'success' : 'warning'}`}>{employmentStatusLabels[value] ?? '状態不明'}</span> }

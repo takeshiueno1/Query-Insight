@@ -75,10 +75,6 @@ public class LocalDataInitializer implements ApplicationRunner {
         seedEvaluation(period, productEmployeeId, adminEmployeeId, List.of(3, 4, 5, 4, 4, 4), now);
         seedEvaluation(period, salesEmployeeId, adminEmployeeId, List.of(3, 3, 5, 5, 4, 4), now);
 
-        notification(employeeAccount, "EVALUATION", "自己評価が提出済みです",
-                "提出内容と根拠を確認できます。", "/evaluations/self", "local-evaluation-submitted-employee", now);
-        notification(managerAccount, "REVIEW", "部下の自己評価を確認してください",
-                "評価根拠を確認し、上長評価へ進んでください。", "/evaluations/manager", "local-manager-review", now);
     }
 
     private long department(String code, String name, Long parentId, LocalDateTime now) {
@@ -189,16 +185,6 @@ public class LocalDataInitializer implements ApplicationRunner {
                     """).param("targetId", targetId).param("axisCode", axis.code()).param("level", levels.get(index))
                     .param("evidence", evidence(axis.code(), levels.get(index))).update();
         }
-    }
-
-    private void notification(long accountId, String type, String title, String body, String path, String dedupe,
-            LocalDateTime now) {
-        jdbc.sql("""
-                INSERT INTO notifications(public_id,recipient_account_id,type,title,body,link_path,created_at,dedupe_key)
-                VALUES (:publicId,:accountId,:type,:title,:body,:path,:now,:dedupe)
-                """).param("publicId", PublicIdGenerator.next()).param("accountId", accountId).param("type", type)
-                .param("title", title).param("body", body).param("path", path).param("now", now)
-                .param("dedupe", dedupe).update();
     }
 
     private static String grade(double score) {

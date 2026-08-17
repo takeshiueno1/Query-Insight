@@ -106,7 +106,7 @@ class AuthServiceIntegrationTests {
                   AND ed.level > 0
                 """).query(Integer.class).single();
 
-        assertThat(employeeCount).isEqualTo(51);
+        assertThat(employeeCount).isEqualTo(56);
         assertThat(submittedAxisCount).isEqualTo(6);
     }
 
@@ -114,14 +114,22 @@ class AuthServiceIntegrationTests {
     void realisticSeedIsCompleteAndIdempotent() throws Exception {
         realisticDataInitializer.run(null);
 
-        assertThat(count("employees")).isEqualTo(51);
-        assertThat(count("accounts")).isEqualTo(51);
-        assertThat(count("evaluation_targets")).isEqualTo(51);
-        assertThat(count("self_evaluation_details")).isEqualTo(306);
-        assertThat(count("employee_skills")).isEqualTo(255);
-        assertThat(count("employee_knowledge")).isEqualTo(153);
-        assertThat(count("career_histories")).isGreaterThanOrEqualTo(51);
-        assertThat(count("employee_certifications")).isEqualTo(51);
+        assertThat(count("employees")).isEqualTo(56);
+        assertThat(count("accounts")).isEqualTo(56);
+        assertThat(count("evaluation_targets")).isEqualTo(56);
+        assertThat(count("self_evaluation_details")).isEqualTo(336);
+        assertThat(count("employee_skills")).isEqualTo(280);
+        assertThat(count("employee_knowledge")).isEqualTo(168);
+        assertThat(count("career_histories")).isGreaterThanOrEqualTo(56);
+        assertThat(count("employee_certifications")).isEqualTo(56);
+        assertPrincipal("qi0051@query.local", "OFFICER", "SUBORDINATES");
+        assertPrincipal("qi0055@query.local", "GENERAL", "SELF");
+        Integer directReports = jdbc.sql("""
+                SELECT COUNT(*) FROM employees report
+                JOIN employees manager ON manager.id=report.manager_employee_id
+                WHERE manager.employee_no='QI0051' AND report.employee_no BETWEEN 'QI0052' AND 'QI0055'
+                """).query(Integer.class).single();
+        assertThat(directReports).isEqualTo(4);
     }
 
     @Test

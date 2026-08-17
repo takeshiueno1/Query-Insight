@@ -179,6 +179,25 @@ public class TalentSubmissionRepository {
                 .query(this::mapRow).optional();
     }
 
+    public Optional<Row> findForManagerForUpdate(String submissionPublicId, String managerEmployeePublicId) {
+        return jdbc.sql("""
+                SELECT talent_submissions.id FROM talent_submissions
+                WHERE talent_submissions.public_id=:submissionPublicId
+                  AND EXISTS (
+                    SELECT 1 FROM employees employee
+                    WHERE employee.id=talent_submissions.employee_id
+                      AND employee.manager_employee_id=(
+                        SELECT manager.id FROM employees manager WHERE manager.public_id=:managerPublicId)
+                      AND employee.employment_status<>'RETIRED'
+                  )
+                FOR UPDATE
+                """)
+                .param("submissionPublicId", submissionPublicId)
+                .param("managerPublicId", managerEmployeePublicId)
+                .query(Long.class).optional()
+                .map(this::findById);
+    }
+
     public List<Row> findForManager(String managerEmployeePublicId, Status status) {
         return jdbc.sql(selectSql() + """
                  JOIN employees e ON e.id=talent_submissions.employee_id

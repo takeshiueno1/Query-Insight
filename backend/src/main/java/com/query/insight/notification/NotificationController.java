@@ -17,9 +17,16 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/notifications")
 public class NotificationController {
     private final JdbcClient jdbc;
+    private final NotificationService service;
 
-    public NotificationController(JdbcClient jdbc) {
+    public NotificationController(JdbcClient jdbc, NotificationService service) {
         this.jdbc = jdbc;
+        this.service = service;
+    }
+
+    @GetMapping("/unread-count")
+    UnreadCountResponse unreadCount(@AuthenticationPrincipal Jwt jwt) {
+        return new UnreadCountResponse(service.unreadCount(jwt.getClaimAsString("accountPublicId")));
     }
 
     @GetMapping
@@ -57,5 +64,8 @@ public class NotificationController {
 
     record NotificationResponse(String publicId, String type, String title, String body, String linkPath,
             Instant readAt, Instant createdAt) {
+    }
+
+    record UnreadCountResponse(long unreadCount) {
     }
 }

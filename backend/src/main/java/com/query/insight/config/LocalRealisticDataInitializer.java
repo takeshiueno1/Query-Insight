@@ -1,6 +1,8 @@
 package com.query.insight.config;
 
 import com.query.insight.common.PublicIdGenerator;
+import com.query.insight.evaluation.EvaluationRank;
+import com.query.insight.status.ProfileStatusService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -30,13 +32,15 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
             "加藤", "吉田", "山本", "松本", "井上", "木村", "林", "清水", "斎藤", "山口",
             "森", "池田", "橋本", "阿部", "石川", "山崎", "中島", "前田", "藤田", "小川",
             "後藤", "岡田", "長谷川", "村上", "近藤", "石井", "坂本", "遠藤", "青木", "藤井",
-            "西村", "福田", "太田", "三浦", "藤原", "岡本", "松田", "中川", "中野", "原田");
+            "西村", "福田", "太田", "三浦", "藤原", "岡本", "松田", "中川", "中野", "原田",
+            "上原", "宮本", "野口", "菅原", "平野");
     private static final List<String> FIRST_NAMES = List.of(
             "太郎", "花子", "健", "葵", "直樹", "美咲", "大輔", "結衣", "拓海", "陽菜",
             "翔太", "彩香", "悠斗", "七海", "亮", "麻衣", "蓮", "真由", "航", "里奈",
             "陸", "遥", "誠", "愛", "颯太", "優奈", "和也", "千尋", "雄大", "未来",
             "健太", "菜々子", "達也", "沙織", "一樹", "恵", "駿", "由佳", "浩平", "明日香",
-            "俊介", "香織", "学", "梨沙", "智也", "美月", "祐介", "琴音", "隆", "瑞希");
+            "俊介", "香織", "学", "梨沙", "智也", "美月", "祐介", "琴音", "隆", "瑞希",
+            "雅人", "奈緒", "海斗", "美優", "修平");
 
     private static final Map<String, List<String>> DEPARTMENT_SKILLS = Map.of(
             "DEV", List.of("JAVA", "SPRING", "REACT", "TYPESCRIPT", "POSTGRESQL", "DOCKER", "AWS", "TEST_AUTOMATION"),
@@ -49,10 +53,13 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
 
     private final JdbcClient jdbc;
     private final PasswordEncoder encoder;
+    private final ProfileStatusService profileStatusService;
 
-    public LocalRealisticDataInitializer(JdbcClient jdbc, PasswordEncoder encoder) {
+    public LocalRealisticDataInitializer(JdbcClient jdbc, PasswordEncoder encoder,
+            ProfileStatusService profileStatusService) {
         this.jdbc = jdbc;
         this.encoder = encoder;
+        this.profileStatusService = profileStatusService;
     }
 
     @Override
@@ -75,8 +82,48 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
                 .param("deadline", LocalDateTime.of(2026, 7, 31, 23, 59)).update();
         ensureApprovalExample("QI0004", "EXECUTIVE_REVIEW", now);
         ensureApprovalExample("QI0005", "FINALIZED", now);
+        ensureApprovalExample("QI0008", "FINALIZED", now);
         ensureApprovalExample("QI0007", "MANAGER_RETURNED", now);
+        ensureCurrentEvaluationNotifications(now);
         ensureTalentWorkflowExamples(now);
+    }
+
+    private void ensureCurrentEvaluationNotifications(LocalDateTime now) {
+        jdbc.sql("""
+                DELETE FROM notifications
+                WHERE dedupe_key IN ('local-evaluation-submitted-employee','local-manager-review')
+                """).update();
+        ensureNotification("QI0008", "EVALUATION_FINALIZED", "上長評価が確定しました",
+                "確定した上長評価の結果を確認できます。", "/evaluations/manager-result",
+                "local-current-evaluation-finalized", now);
+        String returnedTarget = evaluationTargetPublicId("QI0007");
+        ensureNotification("QI0002", "MANAGER_EVALUATION_RETURNED", "最終承認者から評価が差し戻されました",
+                "差戻し理由を確認し、上長評価を修正してください。", "/evaluations/manager/" + returnedTarget,
+                "local-current-evaluation-manager-returned", now);
+        String executiveTarget = evaluationTargetPublicId("QI0004");
+        ensureNotification("QI0039", "EXECUTIVE_REVIEW", "上長評価の最終承認をお願いします",
+                "提出された上長評価を確認してください。", "/executive/evaluations/" + executiveTarget,
+                "local-current-evaluation-executive-review", now);
+    }
+
+    private void ensureNotification(String recipientEmployeeNo, String type, String title, String body,
+            String linkPath, String dedupeKey, LocalDateTime now) {
+        jdbc.sql("""
+                INSERT INTO notifications(public_id,recipient_account_id,type,title,body,link_path,created_at,dedupe_key)
+                SELECT :publicId,a.id,:type,:title,:body,:linkPath,:now,:dedupeKey
+                FROM accounts a JOIN employees e ON e.id=a.employee_id
+                WHERE e.employee_no=:employeeNo
+                  AND NOT EXISTS (SELECT 1 FROM notifications WHERE dedupe_key=:dedupeKey)
+                """).param("publicId", PublicIdGenerator.next()).param("type", type).param("title", title)
+                .param("body", body).param("linkPath", linkPath).param("now", now).param("dedupeKey", dedupeKey)
+                .param("employeeNo", recipientEmployeeNo).update();
+    }
+
+    private String evaluationTargetPublicId(String employeeNo) {
+        return jdbc.sql("""
+                SELECT t.public_id FROM evaluation_targets t JOIN employees e ON e.id=t.employee_id
+                WHERE e.employee_no=:employeeNo
+                """).param("employeeNo", employeeNo).query(String.class).single();
     }
 
     private void ensureTalentWorkflowExamples(LocalDateTime now) {
@@ -163,7 +210,7 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
 
     private void ensureApprovalExample(String employeeNo, String targetStatus, LocalDateTime now) {
         Map<String, Object> target = jdbc.sql("""
-                SELECT t.id target_id,t.public_id target_public_id,t.evaluator_employee_id
+                SELECT t.id target_id,t.public_id target_public_id,t.employee_id,t.evaluator_employee_id
                 FROM evaluation_targets t JOIN employees e ON e.id=t.employee_id
                 WHERE e.employee_no=:employeeNo
                 """).param("employeeNo", employeeNo).query().singleRow();
@@ -175,26 +222,28 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
                 : "EXECUTIVE_REVIEW".equals(targetStatus) ? "SUBMITTED" : "DRAFT";
         List<Integer> levels = jdbc.sql("SELECT level FROM self_evaluation_details WHERE target_id=:targetId")
                 .param("targetId", targetId).query(Integer.class).list();
-        BigDecimal score = BigDecimal.valueOf(levels.stream().mapToInt(Integer::intValue).sum())
+        List<EvaluationRank> ranks = levels.stream().map(EvaluationRank::fromLevel).toList();
+        BigDecimal score = ranks.stream().map(rank -> new BigDecimal(rank.score())).reduce(BigDecimal.ZERO,
+                BigDecimal::add)
                 .divide(BigDecimal.valueOf(levels.size()), 2, RoundingMode.HALF_UP);
-        String grade = score.compareTo(new BigDecimal("4.50")) >= 0 ? "S"
-                : score.compareTo(new BigDecimal("4.00")) >= 0 ? "A"
-                : score.compareTo(new BigDecimal("3.00")) >= 0 ? "B" : "C";
+        String grade = EvaluationRank.overall(ranks).name();
+        long profileStatusSnapshotId = profileStatusService
+                .recalculate(((Number) target.get("EMPLOYEE_ID")).longValue()).id();
         jdbc.sql("""
                 INSERT INTO manager_evaluations(public_id,target_id,revision_no,status,summary,weighted_score,grade,
-                  submitted_at,finalized_at,version)
-                VALUES (:publicId,:targetId,1,:status,:summary,:score,:grade,:submittedAt,:finalizedAt,0)
+                  submitted_at,finalized_at,profile_status_snapshot_id,version)
+                VALUES (:publicId,:targetId,1,:status,:summary,:score,:grade,:submittedAt,:finalizedAt,:snapshotId,0)
                 """).param("publicId", PublicIdGenerator.next()).param("targetId", targetId)
                 .param("status", managerStatus).param("summary", "安定した成果と今後の成長可能性を確認しました。")
                 .param("score", score).param("grade", grade)
                 .param("submittedAt", "DRAFT".equals(managerStatus) ? null : now)
-                .param("finalizedAt", "FINALIZED".equals(managerStatus) ? now : null).update();
+                .param("finalizedAt", "FINALIZED".equals(managerStatus) ? now : null)
+                .param("snapshotId", profileStatusSnapshotId).update();
         long managerEvaluationId = jdbc.sql("SELECT id FROM manager_evaluations WHERE target_id=:targetId")
                 .param("targetId", targetId).query(Long.class).single();
         jdbc.sql("""
                 INSERT INTO manager_evaluation_details(manager_evaluation_id,axis_code,level,comment)
-                SELECT :managerId,axis_code,level,
-                  CASE WHEN axis_code='TECHNICAL' THEN '成果物と日常の行動を踏まえて判断しました。' ELSE NULL END
+                SELECT :managerId,axis_code,level,'成果物と日常の行動を踏まえて判断しました。'
                 FROM self_evaluation_details WHERE target_id=:targetId
                 """).param("managerId", managerEvaluationId).param("targetId", targetId).update();
         jdbc.sql("""
@@ -335,7 +384,7 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
 
     private List<EmployeeSeed> employeeSeeds() {
         List<EmployeeSeed> result = new ArrayList<>();
-        for (int number = 1; number <= 50; number++) {
+        for (int number = 1; number <= 55; number++) {
             String employeeNo = "QI%04d".formatted(number);
             String department = department(number);
             String managerNo = managerNo(number, department);
@@ -351,12 +400,13 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
                     email, department, managerNo, position(number, department),
                     LocalDate.of(2013 + number % 12, 1 + number % 12, 1 + number % 24)));
         }
-        result.add(new EmployeeSeed(51, "QITEST", "テスト", "ユーザー", "test@query.local", "DEV", "QI0002",
+        result.add(new EmployeeSeed(56, "QITEST", "テスト", "ユーザー", "test@query.local", "DEV", "QI0002",
                 "ローカル動作確認ユーザー", LocalDate.of(2026, 7, 1)));
         return result;
     }
 
     private String department(int number) {
+        if (number >= 51) return "DEV";
         if (number == 1) return "DEV";
         if (number <= 20) return number >= 17 ? "DATA" : "DEV";
         if (number <= 27) return "PRODUCT";
@@ -369,6 +419,8 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
 
     private String managerNo(int number, String department) {
         if (number == 1) return null;
+        if (number == 51) return "QI0001";
+        if (number >= 52) return "QI0051";
         if (number == 2 || number == 4 || number == 5 || number == 35 || number == 40) return "QI0001";
         if (number == 17) return "QI0006";
         if (number == 48) return "QI0005";
@@ -687,7 +739,7 @@ public class LocalRealisticDataInitializer implements ApplicationRunner {
     }
 
     private boolean isManager(int number) {
-        return Set.of(1, 2, 4, 5, 6, 17, 18, 35, 40, 48).contains(number);
+        return Set.of(1, 2, 4, 5, 6, 17, 18, 35, 40, 48, 51).contains(number);
     }
 
     private String departmentName(String code) {

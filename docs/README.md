@@ -14,7 +14,7 @@
 | [05-analysis-report.md](05-analysis-report.md) | 資料横断分析、矛盾、実装判断 | 作成済み |
 | [06-traceability.md](06-traceability.md) | 要件・画面・API・実装状況 | 作成済み |
 | [07-free-deployment.md](07-free-deployment.md) | Render・Neon無料公開版の構成、設定、検証 | 作成済み |
-| [08-realistic-sample-data.md](08-realistic-sample-data.md) | 50名分の架空社員・評価・タレントプロフィールとAI送信範囲 | 作成済み |
+| [08-realistic-sample-data.md](08-realistic-sample-data.md) | 55名分の架空社員・評価・タレントプロフィールとAI送信範囲 | 作成済み |
 | [09-security-measures.md](09-security-measures.md) | 無料で実装した多層防御、設定値、運用上の制約 | 作成済み |
 | [99-open-questions.md](99-open-questions.md) | 意思決定が必要な論点 | 更新中 |
 

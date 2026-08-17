@@ -2,6 +2,7 @@ package com.query.insight.talent;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.query.insight.status.ProfileStatusService;
 import com.query.insight.talent.TalentSubmission.Type;
 import com.query.insight.talent.attachment.FileScanClient;
 import com.query.insight.talent.attachment.TalentAttachmentService;
@@ -17,6 +18,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
 
 @SpringBootTest
 @ActiveProfiles("local")
@@ -29,6 +31,8 @@ class TalentWorkflowEndToEndIntegrationTests {
     private TalentAttachmentService attachments;
     @Autowired
     private TalentProfileService profiles;
+    @Autowired
+    private ProfileStatusService profileStatuses;
     @Autowired
     private JdbcClient jdbc;
 
@@ -97,6 +101,38 @@ class TalentWorkflowEndToEndIntegrationTests {
             assertThat(jdbc.sql("SELECT COUNT(*) FROM talent_attachments WHERE submission_id=:id")
                     .param("id", draft.id()).query(Integer.class).single()).isZero();
         }
+    }
+
+    @Test
+    @Transactional
+    void profileStatusChangesOnlyAfterDirectManagerApproval() {
+        Actor employee = actor("QITEST");
+        Actor manager = actor("QI0002");
+        long employeeId = jdbc.sql("SELECT id FROM employees WHERE employee_no='QITEST'")
+                .query(Long.class).single();
+        jdbc.sql("DELETE FROM profile_status_snapshots WHERE employee_id=:employeeId")
+                .param("employeeId", employeeId).update();
+        var before = profileStatuses.recalculate(employeeId);
+        int approvedLevel = before.result().skillScore().compareTo(new BigDecimal("60.00")) < 0 ? 5 : 1;
+        Master master = unassignedSkillMaster();
+        var draft = submissions.create(employee.employeePublicId(), Type.SKILL,
+                new TalentPayloads.SkillPayload(master.publicId(), approvedLevel, new BigDecimal("1.0"),
+                        LocalDate.of(2026, 8, 1), "承認時だけ反映する根拠"),
+                employee.accountPublicId(), traceId(30));
+
+        var submitted = submissions.submit(employee.employeePublicId(), employee.accountPublicId(),
+                draft.publicId(), draft.version(), traceId(31));
+        var whileSubmitted = profileStatuses.currentForEmployee(employee.employeePublicId());
+
+        assertThat(whileSubmitted.publicId()).isEqualTo(before.publicId());
+        assertThat(whileSubmitted.skillScore()).isEqualByComparingTo(before.result().skillScore());
+
+        submissions.approve(manager.employeePublicId(), manager.accountPublicId(),
+                draft.publicId(), submitted.version(), traceId(32));
+        var afterApproval = profileStatuses.currentForEmployee(employee.employeePublicId());
+
+        assertThat(afterApproval.publicId()).isNotEqualTo(before.publicId());
+        assertThat(afterApproval.skillScore()).isNotEqualByComparingTo(before.result().skillScore());
     }
 
     private Actor actor(String employeeNo) {
