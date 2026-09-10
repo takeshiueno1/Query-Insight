@@ -5,7 +5,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM eclipse-temurin:21-jdk-alpine AS backend-build
+FROM eclipse-temurin:26-jdk-alpine AS backend-build
 WORKDIR /workspace
 COPY backend/.mvn .mvn
 COPY backend/mvnw backend/pom.xml ./
@@ -14,7 +14,7 @@ COPY backend/src src
 COPY --from=frontend-build /workspace/frontend/dist src/main/resources/static
 RUN test -f src/main/resources/static/index.html && ./mvnw -q -DskipTests package
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:26-jre-alpine
 RUN addgroup -S app && adduser -S -G app app
 WORKDIR /app
 COPY --from=backend-build /workspace/target/*.jar app.jar
