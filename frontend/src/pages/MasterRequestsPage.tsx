@@ -3,14 +3,15 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
+import { utf16Max } from '../lib/zod-length'
 import { useAuth } from '../features/auth/auth-context'
 import { api, ApiError } from '../lib/api'
 import type { MasterRequest } from '../types'
 
 type RequestValues = { type: string; description: string }
 const requestSchema = z.object({
-  type: z.string().trim().min(1, '種類を入力してください').max(100, '種類は100文字以内で入力してください'),
-  description: z.string().trim().min(1, '説明を入力してください').max(1000, '説明は1000文字以内で入力してください'),
+  type: z.string().trim().min(1, '種類を入力してください').check(utf16Max(100, '種類は100文字以内で入力してください')),
+  description: z.string().trim().min(1, '説明を入力してください').check(utf16Max(1000, '説明は1000文字以内で入力してください')),
 })
 
 const statusLabels: Record<MasterRequest['status'], string> = {

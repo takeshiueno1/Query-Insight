@@ -3,15 +3,16 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Navigate } from 'react-router-dom'
 import { z } from 'zod'
+import { utf16Max } from '../lib/zod-length'
 import { BrandLogo } from '../components/BrandLogo'
 import { useAuth } from '../features/auth/auth-context'
 import { ApiError } from '../lib/api'
 
 const schema = z.object({
-  loginId: z.string().trim().min(1, 'ログインIDを入力してください').max(254),
+  loginId: z.string().trim().min(1, 'ログインIDを入力してください').check(utf16Max(254)),
   password: z.string()
     .min(8, 'パスワードは半角英数字8文字以上です')
-    .max(128)
+    .check(utf16Max(128))
     .regex(/^(?=.*[A-Za-z])(?=.*[0-9])[A-Za-z0-9]+$/, 'パスワードは半角英数字で、英字と数字を含めてください'),
 })
 type FormValues = z.infer<typeof schema>

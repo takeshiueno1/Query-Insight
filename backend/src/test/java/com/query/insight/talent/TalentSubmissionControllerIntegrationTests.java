@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
@@ -43,6 +44,7 @@ class TalentSubmissionControllerIntegrationTests {
     }
 
     @Test
+    @Transactional
     void employeeCreatesUpdatesListsAndSubmitsOwnSkill() throws Exception {
         String masterPublicId = jdbc.sql("SELECT public_id FROM skill_masters ORDER BY id LIMIT 1")
                 .query(String.class).single();
