@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { z } from 'zod'
+import { utf16Max } from '../lib/zod-length'
 import { useAuth } from '../features/auth/auth-context'
 import { api, ApiError } from '../lib/api'
 import { competencyLevels } from '../lib/competency'
@@ -21,12 +22,12 @@ const initialValues: FormValues = {
   technologies: '', acquiredOn: '', expiresOn: '', credentialReference: '',
 }
 
-const required = (label: string, max: number) => z.string().trim().min(1, `${label}を入力してください`).max(max)
+const required = (label: string, max: number) => z.string().trim().min(1, `${label}を入力してください`).check(utf16Max(max))
 const schemas = {
   SKILL: z.object({ masterPublicId: required('スキル', 26), level: z.coerce.number().int().min(1).max(5), yearsExperience: z.coerce.number().min(0).max(60), lastUsedOn: required('最終利用日', 10), evidence: required('根拠', 1000) }),
   KNOWLEDGE: z.object({ masterPublicId: required('得意分野', 26), level: z.coerce.number().int().min(1).max(5), evidence: required('根拠', 1000) }),
   CAREER: z.object({ projectName: required('案件名', 150), industry: required('業界', 100), roleName: required('役割', 100), startDate: required('開始日', 10), endDate: z.string(), summary: required('概要', 1000), achievements: required('成果', 1500), technologies: required('利用技術', 1000) }),
-  CERTIFICATION: z.object({ masterPublicId: required('資格', 26), acquiredOn: required('取得日', 10), expiresOn: z.string(), credentialReference: z.string().max(100) }),
+  CERTIFICATION: z.object({ masterPublicId: required('資格', 26), acquiredOn: required('取得日', 10), expiresOn: z.string(), credentialReference: z.string().check(utf16Max(100)) }),
 } satisfies Record<TalentSubmissionType, z.ZodType>
 
 const attachmentStatusLabels: Record<TalentAttachmentScanStatus, string> = {

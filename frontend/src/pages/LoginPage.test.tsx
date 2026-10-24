@@ -44,6 +44,18 @@ describe('LoginPage password policy', () => {
     expect(screen.queryByText(/パスワードは/)).not.toBeInTheDocument()
   })
 
+  it('補助漢字のログインIDもJavaと同じ254 UTF-16単位で制限する', async () => {
+    renderLogin()
+    fireEvent.change(screen.getByLabelText('ログインID'), { target: { value: '𠮷'.repeat(128) } })
+    fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: '5050Rock' } })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+    await waitFor(() => expect(screen.getByText(/254/)).toBeInTheDocument())
+    expect(loginMock).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('ログインID'), { target: { value: '𠮷'.repeat(127) } })
+    fireEvent.click(screen.getByRole('button', { name: 'ログイン' }))
+    await waitFor(() => expect(loginMock).toHaveBeenCalledWith('𠮷'.repeat(127), '5050Rock'))
+  })
+
   it.each(['505Rock', 'RockOnly', '50505050', '5050#Rock', '５０５０Rock', '5050 Rock'])(
     'ポリシー外のパスワード %s を送信前に拒否する',
     async (password) => {
