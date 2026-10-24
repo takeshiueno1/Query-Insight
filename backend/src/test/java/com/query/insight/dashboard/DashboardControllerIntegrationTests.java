@@ -41,6 +41,15 @@ class DashboardControllerIntegrationTests {
         insertNotification(other.id(), "dashboard-other-2");
         String ownerStatusPublicId = latestProfileStatusPublicId("QI0005");
         String otherStatusPublicId = latestProfileStatusPublicId("QI0004");
+        // This endpoint test verifies aggregation/ownership, not today's career-month calculation.
+        // Freeze the persisted fixture inside this rollback transaction; retain exact assertions.
+        jdbc.sql("""
+                UPDATE profile_status_snapshots
+                SET skill_score=76, knowledge_score=60, career_score=61.67,
+                    certification_score=20, total_score=60.82, grade='C'
+                WHERE public_id=:publicId
+                """).param("publicId", ownerStatusPublicId).update();
+
 
         mvc.perform(get("/api/v1/dashboard/me")
                         .param("employeePublicId", other.employeePublicId())
